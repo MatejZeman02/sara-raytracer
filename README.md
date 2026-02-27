@@ -23,7 +23,7 @@ Dimensions:
 Pure rendering on both machines:
 | hw | local | remote |
 | - | - | - |
-|1 | xx s| xx s |
+|1 | 2.80 s| xx s |
 |2 | xx s| xx s |
 |3 | xx s| xx s |
 |4 | xx s| xx s |

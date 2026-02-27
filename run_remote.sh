@@ -4,7 +4,7 @@
 #SBATCH --error=render_err.log
 #SBATCH --partition=gpu2
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 
 #SBATCH --time=00:10:00
 #SBATCH --mem=4G
