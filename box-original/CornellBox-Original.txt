@@ -1,0 +1,5 @@
+CornellBox-Original.obj
+pos 278 273 -1000
+up 0 1 0 
+dir 0 0 1
+fov 0.6
