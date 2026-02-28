@@ -12,20 +12,33 @@ The output will be in the homework folder as `output.ppm/png`.
 ## Render Times
 
 Testing on my box-advanced with +-5000 triangles.
-(cpu side is usually constant)
+The meassurements assume the data is already on gpu.
 
 Dimensions per machine:
-- 1440**2 on my local rtx3070 mobile.
+- 1440**2 on local rtx3070 mobile.
 - 2880**2 on A100 on cluster.
 
 
 ## Homework render times:
 Pure rendering on both machines:
-| hw | local | remote |
-| - | - | - |
-|1 | 2.80 s| 1.50 s |
-|2 | xx s| xx s |
-|3 | xx s| xx s |
-|4 | xx s| xx s |
-|5 | xx s| xx s |
+| hw  | local  | remote | note |
+| --- | ------ | ------ | ---- |
+| 1   | 2.26 s | 1.50 s | cook |
+| 2   | x.xx s | x.xx s |      |
+| 3   | x.xx s | x.xx s |      |
+| 4   | x.xx s | x.xx s |      |
+| 5   | x.xx s | x.xx s |      |
 
+## Homework renders
+
+<img src="hw01/output/output.png" width="25%" alignment="center"/>
+<img src="hw02/output/output.png" width="25%" alignment="center"/>
+
+***
+
+<img src="hw03/output/output.png" width="25%" alignment="center"/>
+<img src="hw04/output/output.png" width="25%" alignment="center"/>
+
+***
+
+<img src="hw05/output/output.png" width="25%" alignment="center"/>

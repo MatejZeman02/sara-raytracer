@@ -1,0 +1,66 @@
+"""Utility class to manage CUDA kernel execution with dynamic argument resolution and precompilation."""
+
+import inspect
+import numpy as np
+from numba import cuda
+import time
+
+
+class KernelManager:
+    def __init__(self, kernel_func):
+        self.kernel = kernel_func
+        self.arg_names = list(inspect.signature(kernel_func).parameters.keys())
+
+    def _resolve_args(self, local_vars):
+        """maps local variables and handles automatic gpu transfers."""
+        gpu_args = []
+        for name in self.arg_names:
+            # find the variable name (handles 'd_' prefix logic)
+            search_name = (
+                name[2:] if name.startswith("d_") and name not in local_vars else name
+            )
+
+            assert search_name in local_vars, f"missing variable: {search_name}"
+            val = local_vars[search_name]
+
+            # check if it's already a numba device array
+            if isinstance(val, cuda.devicearray.DeviceNDArray):
+                gpu_args.append(val)
+            elif isinstance(val, np.ndarray):
+                # upload to gpu and update the local scope so next time is faster
+                gpu_val = cuda.to_device(
+                    val.astype(np.float32) if val.dtype == np.float64 else val
+                )
+                local_vars[search_name] = gpu_val
+                gpu_args.append(gpu_val)
+            else:
+                # pass scalars (int, float) directly
+                gpu_args.append(val)
+
+        return gpu_args
+
+    def precompile_run(self, local_vars):
+        """runs kernel on 1x1 grid using real data to trigger accurate jit compilation."""
+        args = self._resolve_args(local_vars)
+        assert len(args) == len(self.arg_names), "argument count mismatch during warmup"
+
+        # execute single thread with real memory references
+        self.kernel[(1, 1), (1, 1)](*args)
+        cuda.synchronize()
+
+    def run(self, grid, block, data_context, measure_time=True):
+        """calls the kernel using the correct argument order."""
+        # build the argument list based on the kernel signature
+        args = self._resolve_args(data_context)
+
+        if not measure_time:
+            self.kernel[grid, block](*args)
+            cuda.synchronize()
+            return
+        start = time.perf_counter()
+        self.kernel[grid, block](*args)
+        cuda.synchronize()
+        elapsed = time.perf_counter() - start
+
+        # print(f"Kernel execution time: {elapsed:.2f} seconds.")
+        # note: if args previously transferred to gpu, this timing will only include kernel execution!
