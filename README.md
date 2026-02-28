@@ -14,20 +14,20 @@ The output will be in the homework folder as `output.ppm/png`.
 Testing on my box-advanced with +-5000 triangles.
 The meassurements assume the data is already on gpu.
 
-Dimensions per machine:
-- 1440**2 on local rtx3070 mobile.
-- 5760**2 on A100 on cluster.
+> Dimensions per machine:
+> - 1440**2 on local rtx3070 mobile.
+> - 5760**2 on remote A100 on cluster.
 
 
 ## Homework render times:
 Pure rendering on both machines:
-| hw  | local  | remote | note |
-| --- | ------ | ------ | ---- |
-| 1   | 2.26 s | 1.18 s | cook |
-| 2   | x.xx s | x.xx s |      |
-| 3   | x.xx s | x.xx s |      |
-| 4   | x.xx s | x.xx s |      |
-| 5   | x.xx s | x.xx s |      |
+| hw  | local  | remote | note    |
+| --- | ------ | ------ | ------- |
+| 1   | 2.26 s | 1.18 s | cook    |
+| 2   | x.xx s | x.xx s | SAH BVH |
+| 3   | x.xx s | x.xx s |         |
+| 4   | x.xx s | x.xx s |         |
+| 5   | x.xx s | x.xx s |         |
 
 ## Homework renders
 

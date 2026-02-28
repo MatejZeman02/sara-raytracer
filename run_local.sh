@@ -2,7 +2,7 @@
 
 # clear
 
-HW="hw01"
+HW="hw02"
 # check if argument is provided
 if [ $# -gt 0 ]; then
     HW="$1"
