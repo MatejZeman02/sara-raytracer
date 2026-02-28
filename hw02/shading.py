@@ -1,19 +1,19 @@
 """CUDA device functions for shading."""
 
 import math
-from numba import cuda  # type: ignore
+from numba import cuda
 
-from utils.vec_utils import add, div_vec, dot, mul, mul_vec, normalize, sub, vec3
+from utils.vec_utils import vec3, add, dot, mul, mul_vec, normalize, sub
 
 
-@cuda.jit(device=True)
+@cuda.jit(device=True, inline=True)
 def phong_diffuse(n, d_l, r_d, i_l):
     n_dot_l = max(0.0, dot(n, d_l))
     diffuse_color = mul_vec(r_d, i_l)
     return mul(diffuse_color, n_dot_l)
 
 
-@cuda.jit(device=True)
+@cuda.jit(device=True, inline=True)
 def phong_specular(n, v, d_l, r_s, h, i_l):
     temp = mul(n, 2.0 * dot(n, d_l))
     r_l = normalize(sub(temp, d_l))
@@ -24,7 +24,7 @@ def phong_specular(n, v, d_l, r_s, h, i_l):
     return mul(specular_color, spec_factor)
 
 
-@cuda.jit(device=True)
+@cuda.jit(device=True, inline=True)
 def phong_shading(n, v, d_l, r_d, r_s, h, i_l):
     diffuse = phong_diffuse(n, d_l, r_d, i_l)
     specular = phong_specular(n, v, d_l, r_s, h, i_l)

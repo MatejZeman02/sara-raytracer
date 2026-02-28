@@ -1,7 +1,7 @@
 """SAH (surface area heuristic) BVH builder for ray tracing on cpu with jit using stack"""
 
-import numpy as np  # type: ignore
-from numba import njit  # type: ignore
+import numpy as np
+from numba import njit
 
 
 @njit

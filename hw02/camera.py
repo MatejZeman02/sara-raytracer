@@ -1,6 +1,6 @@
 """Camera preparation helpers."""
 
-import numpy as np  # type: ignore
+import numpy as np
 
 
 def build_camera_vectors(cam_data, width, height):
@@ -12,7 +12,7 @@ def build_camera_vectors(cam_data, width, height):
     b_vec = np.cross(dir_vec, up_vec)
     b_vec = b_vec / np.linalg.norm(b_vec)
 
-    t = 1.0 # focal length
+    t = 1.0  # focal length
     g_w = 2.0 * t * np.tan(fov / 2.0)
     g_h = g_w * (height / width)
 

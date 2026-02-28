@@ -1,7 +1,7 @@
 """CUDA device functions for intersection tests."""
 
 import math
-from numba import cuda  # type: ignore
+from numba import cuda
 
 from utils.vec_utils import vec3, mul_vec, cross, dot, sub
 from settings import CULLBACK, EPSILON, INFINITY_VEC

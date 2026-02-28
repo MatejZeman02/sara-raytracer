@@ -49,18 +49,16 @@ class KernelManager:
         cuda.synchronize()
 
     def run(self, grid, block, data_context, measure_time=True):
-        """calls the kernel using the correct argument order."""
+        """
+        calls the kernel using the correct argument order.
+
+        **note:** if args previously transferred to gpu, this timing will only include kernel execution!
+        """
         # build the argument list based on the kernel signature
         args = self._resolve_args(data_context)
 
-        if not measure_time:
-            self.kernel[grid, block](*args)
-            cuda.synchronize()
-            return
-        start = time.perf_counter()
+        t0 = time.perf_counter()
         self.kernel[grid, block](*args)
         cuda.synchronize()
-        elapsed = time.perf_counter() - start
-
-        # print(f"Kernel execution time: {elapsed:.2f} seconds.")
-        # note: if args previously transferred to gpu, this timing will only include kernel execution!
+        if measure_time:
+            return t0

@@ -15,9 +15,9 @@ import warnings
 import math
 
 # 3rd party imports:
-import numpy as np  # type: ignore
-from PIL import Image  # type: ignore
-from numba import cuda  # type: ignore
+import numpy as np
+from PIL import Image
+from numba import cuda
 from numba.core.errors import NumbaPerformanceWarning
 
 # ignore 'low occupancy' warning during the 1x1 warmup run
@@ -31,7 +31,7 @@ if project_root not in sys.path:
 # local imports:
 from camera import build_camera_vectors
 from render_kernel import render_kernel
-from settings import BLOCK_THREADS, DIMENSION
+from settings import BLOCK_THREADS, DIMENSION, RENDER_NON_BVH_STATS
 from bvh import build_bvh
 from utils.obj_loader import load_scene
 from utils.ppm import save_ppm
@@ -76,7 +76,7 @@ def main():
         cam_data, width, height
     )
 
-    t = _phase_time("init", t_start)
+    t = _phase_time("python init", t_start)
 
     # build bvh and reorder triangles and materials based on the tree structure
     bvh_nodes, triangles, mat_indices = build_bvh(triangles, mat_indices)
@@ -96,35 +96,28 @@ def main():
     # precompile with use_bvh set to false
     use_bvh = False
     manager.precompile_run(locals())
-    cuda.synchronize()
 
     threads = (BLOCK_THREADS, BLOCK_THREADS)
     grid = (math.ceil(width / threads[0]), math.ceil(height / threads[1]))
     t = _phase_time("jit compile run", t)
 
-    # render without data structure (brute force)
-    use_bvh = False
-    t_brute = time.perf_counter()
-    manager.run(grid, threads, locals())
-    cuda.synchronize()
-    t = _phase_time("render (no ds)", t_brute)
+    if RENDER_NON_BVH_STATS:
+        # render without data structure (brute force)
+        use_bvh = False
+        t_brute = manager.run(grid, threads, locals())
+        t = _phase_time("render (no ds)", t_brute)
 
-    # fetch and calculate brute force statistics
-    stats_brute = out_stats.copy_to_host()
-    avg_tris_brute = np.mean(stats_brute[:, :, 0])
-    print(f"\tavg triangle tests per ray (no ds): {avg_tris_brute:.0f}")
-    print(
-        f"\tnormal BVH with avg O(log(n)*2) ~ {np.ceil(np.log2(len(triangles) * 2)):.0f}"
-    )  # sometimes testing both branches
+        # fetch and calculate brute force statistics
+        stats_brute = out_stats.copy_to_host()
+        avg_tris_brute = np.mean(stats_brute[:, :, 0])
+        print(f"\t- avg triangle tests per ray (no ds): {avg_tris_brute:.0f}")
 
-    # clear the stats array on the gpu for the next run
-    out_stats = cuda.device_array((height, width, 2), dtype=np.int32)
+        # clear the stats array on the gpu for the next run
+        out_stats = cuda.device_array((height, width, 2), dtype=np.int32)
 
-    # render with bvh data structure
+    # render with bvh:
     use_bvh = True
-    t_bvh = time.perf_counter()
-    manager.run(grid, threads, locals())
-    cuda.synchronize()
+    t_bvh = manager.run(grid, threads, locals())
     t = _phase_time("render (with ds)", t_bvh)
 
     # fetch and calculate bvh statistics
@@ -132,8 +125,11 @@ def main():
     avg_tris_bvh = np.mean(stats_bvh[:, :, 0])
     avg_nodes_bvh = np.mean(stats_bvh[:, :, 1])
 
-    print(f"\tavg triangle tests per ray (with ds): {avg_tris_bvh:.0f}")
-    print(f"\tavg bvh node tests per ray (with ds): {avg_nodes_bvh:.0f}")
+    print(
+        f"\t- normal BVH with avg O(log(n)) * 2 ~ {(np.ceil(np.log2(len(triangles))) * 2):.0f}"
+    )  # sometimes testing both branches
+    print(f"\t- avg bvh node tests per ray (with ds): {avg_nodes_bvh:.0f}")
+    print(f"\t- avg triangle tests per ray (with ds): {avg_tris_bvh:.0f}")
 
     # retrieve framebuffer from gpu
     host_fb = fb.copy_to_host()
@@ -144,7 +140,7 @@ def main():
     save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
     img.save(output_path + ".png")
-    t = _phase_time("save", t)
+    t = _phase_time("save imgs", t)
 
     print(f"\n[timing] {'total':<20}: {time.perf_counter() - t_start:7.2f} s")
 
