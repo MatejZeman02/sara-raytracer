@@ -39,7 +39,7 @@ from utils.kernel_manager import KernelManager
 def _phase_time(label: str, t0: float) -> float:
     """Print elapsed time from t0 and return new timestamp."""
     t1 = time.perf_counter()
-    print(f"[timing] {label:<20}: {t1 - t0:7.3f} s")
+    print(f"[timing] {label:<20}: {t1 - t0:7.2f} s")
     return t1
 
 
@@ -103,7 +103,7 @@ def main():
     img.save(output_path + ".png")
     t = _phase_time("save", t)
 
-    print(f"\n[timing] {'total':<20}: {time.perf_counter() - t_start:7.3f} s")
+    print(f"\n[timing] {'total':<20}: {time.perf_counter() - t_start:7.2f} s")
 
 
 if __name__ == "__main__":

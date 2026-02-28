@@ -16,14 +16,14 @@ The meassurements assume the data is already on gpu.
 
 Dimensions per machine:
 - 1440**2 on local rtx3070 mobile.
-- 2880**2 on A100 on cluster.
+- 5760**2 on A100 on cluster.
 
 
 ## Homework render times:
 Pure rendering on both machines:
 | hw  | local  | remote | note |
 | --- | ------ | ------ | ---- |
-| 1   | 2.26 s | 1.50 s | cook |
+| 1   | 2.26 s | 1.18 s | cook |
 | 2   | x.xx s | x.xx s |      |
 | 3   | x.xx s | x.xx s |      |
 | 4   | x.xx s | x.xx s |      |
@@ -31,14 +31,14 @@ Pure rendering on both machines:
 
 ## Homework renders
 
-<img src="hw01/output/output.png" width="25%" alignment="center"/>
-<img src="hw02/output/output.png" width="25%" alignment="center"/>
+<img src="hw01/output/output.png" width="25%"/>
+<img src="hw02/output/output.png" width="25%"/>
 
 ***
 
-<img src="hw03/output/output.png" width="25%" alignment="center"/>
-<img src="hw04/output/output.png" width="25%" alignment="center"/>
+<img src="hw03/output/output.png" width="25%"/>
+<img src="hw04/output/output.png" width="25%"/>
 
 ***
 
-<img src="hw05/output/output.png" width="25%" alignment="center"/>
+<img src="hw05/output/output.png" width="25%"/>
