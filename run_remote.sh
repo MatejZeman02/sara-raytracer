@@ -17,4 +17,4 @@ source "$PROJECT_ROOT/.venv/bin/activate"
 # Set PYTHONPATH for'utils' folder/module
 export PYTHONPATH="$PROJECT_ROOT"
 
-"$PROJECT_ROOT"/.venv/bin/python -O "$HW_SCRIPT"
+"$PROJECT_ROOT"/.venv/bin/python -OO "$HW_SCRIPT"

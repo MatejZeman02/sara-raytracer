@@ -6,14 +6,14 @@ from numba import cuda
 from utils.vec_utils import vec3, add, dot, mul, mul_vec, normalize, sub
 
 
-@cuda.jit(device=True, cache=True, inline=True)
+@cuda.jit(device=True, inline=True)
 def phong_diffuse(n, d_l, r_d, i_l):
     n_dot_l = max(0.0, dot(n, d_l))
     diffuse_color = mul_vec(r_d, i_l)
     return mul(diffuse_color, n_dot_l)
 
 
-@cuda.jit(device=True, cache=True, inline=True)
+@cuda.jit(device=True, inline=True)
 def phong_specular(n, v, d_l, r_s, h, i_l):
     temp = mul(n, 2.0 * dot(n, d_l))
     r_l = normalize(sub(temp, d_l))
@@ -24,14 +24,14 @@ def phong_specular(n, v, d_l, r_s, h, i_l):
     return mul(specular_color, spec_factor)
 
 
-@cuda.jit(device=True, cache=True, inline=True)
+@cuda.jit(device=True, inline=True)
 def phong_shading(n, v, d_l, r_d, r_s, h, i_l):
     diffuse = phong_diffuse(n, d_l, r_d, i_l)
     specular = phong_specular(n, v, d_l, r_s, h, i_l)
     return add(diffuse, specular)
 
 
-@cuda.jit(device=True, cache=True)
+@cuda.jit(device=True)
 def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
     """calculate cook-torrance 'brdf'"""
 
@@ -62,8 +62,8 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
     specular = mul(f, specular_scalar)
 
     # energy conservation for diffuse
-    white = vec3(1.0, 1.0, 1.0)
-    k_d = sub(white, f)
+    WHITE = vec3(1.0, 1.0, 1.0)
+    k_d = sub(WHITE, f)
 
     # lambertian diffuse
     diffuse = mul(r_d, 1.0 / math.pi)
@@ -76,17 +76,17 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
     return mul(radiance, n_dot_l)
 
 
-# coock-torrence functions
+# cook-torrence functions
 # Approximations from: (https://www[1]outube.com/watch?v=iKNSPETJNgo)
 
 
-@cuda.jit(device=True, cache=True, inline=True)
+@cuda.jit(device=True, inline=True)
 def get_roughness_from_ns(ns):
     """map obj shininess to pbr roughness"""
     return math.sqrt(2.0 / (ns + 2.0))
 
 
-@cuda.jit(device=True, cache=True, inline=True)
+@cuda.jit(device=True, inline=True)
 def fresnel_schlick(cos_theta, f0):
     """schlick approximation for fresnel"""
     # calculate one minus cos theta to the fifth power
@@ -94,13 +94,13 @@ def fresnel_schlick(cos_theta, f0):
     omc5 = omc * omc * omc * omc * omc
 
     # interpolate between base reflectivity and white
-    white = vec3(1.0, 1.0, 1.0)
-    diff = sub(white, f0)
+    WHITE = vec3(1.0, 1.0, 1.0)
+    diff = sub(WHITE, f0)
 
     return add(f0, mul(diff, omc5))
 
 
-@cuda.jit(device=True, cache=True, inline=True)
+@cuda.jit(device=True, inline=True)
 def distribution_ggx(n_dot_h, roughness):
     """trowbridge-reitz ggx normal distribution"""
     a = roughness * roughness
@@ -114,7 +114,7 @@ def distribution_ggx(n_dot_h, roughness):
     return a2 / max(denom, 1e-7)
 
 
-@cuda.jit(device=True, cache=True, inline=True)
+@cuda.jit(device=True, inline=True)
 def geometry_schlick_ggx(n_dot_v, n_dot_l, roughness):
     """smith geometry function with schlick-ggx"""
     r = roughness + 1.0

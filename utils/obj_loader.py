@@ -1,4 +1,5 @@
 """Uses tinyobjloader to load the obj file and extract the geometry and materials."""
+
 import os
 import json
 
@@ -35,12 +36,17 @@ def _build_geometry(vertices, normals, v_idx, n_idx, num_tris):
     return out_tris, out_norms
 
 
+def load_light_cam_data(json_path):
+    with open(json_path, "r") as f:
+        data = json.load(f)
+    return data["light"], data["camera"], data["obj_file"]
+
+
 def load_scene(txt_path):
     # loads the scene using custom c++ binding
     base_dir = os.path.dirname(txt_path)
-    with open(txt_path, "r") as f:
-        cam_data = json.load(f)
-    obj_path = os.path.join(base_dir, cam_data["obj_file"])
+    light_data, cam_data, obj_file = load_light_cam_data(txt_path)
+    obj_path = os.path.join(base_dir, obj_file)
 
     assert os.path.exists(obj_path)
 
@@ -57,7 +63,7 @@ def load_scene(txt_path):
     assert len(v_idx) % 3 == 0
 
     mat_indices = np.array(raw_mat_idx, dtype=np.int32)
-    materials = np.array(raw_mats, dtype=np.float32).reshape(-1, 10)
+    materials = np.array(raw_mats, dtype=np.float32).reshape(-1, 14)
 
     num_tris = len(mat_indices)
     assert num_tris > 0
@@ -65,4 +71,4 @@ def load_scene(txt_path):
     # build final geometry using numba
     triangles, tri_normals = _build_geometry(vertices, normals, v_idx, n_idx, num_tris)
 
-    return triangles, tri_normals, mat_indices, materials, cam_data
+    return triangles, tri_normals, mat_indices, materials, light_data, cam_data

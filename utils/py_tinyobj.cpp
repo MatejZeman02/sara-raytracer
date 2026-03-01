@@ -62,14 +62,14 @@ PYBIND11_MODULE(tinyobjloader_py, m)
                   }
               }
 
-              // pack materials into flat array
+              // pack materials into flat array of 14 floats
               size_t m_size = std::max<size_t>(1, materials.size());
-              std::vector<float> mat_array(m_size * 10, 0.0f);
+              std::vector<float> mat_array(m_size * 14, 0.0f);
 
               for (size_t i = 0; i < materials.size(); i++)
               {
                   const auto &m = materials[i];
-                  float *dst = &mat_array[i * 10];
+                  float *dst = &mat_array[i * 14];
 
                   // copy material properties
                   dst[0] = m.diffuse[0];
@@ -82,6 +82,10 @@ PYBIND11_MODULE(tinyobjloader_py, m)
                   dst[7] = m.emission[0];
                   dst[8] = m.emission[1];
                   dst[9] = m.emission[2];
+                  dst[10] = m.transmittance[0];
+                  dst[11] = m.transmittance[1];
+                  dst[12] = m.transmittance[2];
+                  dst[13] = m.ior;
               }
 
               // return tuple of raw data including normals

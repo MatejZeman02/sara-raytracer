@@ -7,7 +7,7 @@ from utils.vec_utils import vec3, mul_vec, cross, dot, sub
 from settings import CULLBACK, EPSILON, INFINITY_VEC
 
 
-@cuda.jit(device=True, inline=True, cache=True)
+@cuda.jit(device=True, inline=True)
 def intersect_aabb(ro, inv_rd, bmin, bmax):
     """Ray-AABB intersection test using the slab method."""
     # calculate intersection t-values for all axes
@@ -34,7 +34,7 @@ def intersect_aabb(ro, inv_rd, bmin, bmax):
     return hit, tmin
 
 
-@cuda.jit(device=True, cache=True)
+@cuda.jit(device=True)
 def intersect_triangle(ro, rd, a, b, c):
     """Möller-Trumbore ray-triangle intersection algorithm."""
     e1 = sub(b, a)

@@ -13,6 +13,7 @@ import os
 import sys
 import warnings
 import math
+import json
 
 # 3rd party imports:
 import numpy as np
@@ -29,19 +30,22 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # local imports:
-from camera import build_camera_vectors
+from hw02.setup_vectors import build_setup_vectors
 from render_kernel import render_kernel
 from settings import BLOCK_THREADS, DIMENSION, RENDER_NON_BVH_STATS
 from bvh import build_bvh
-from utils.obj_loader import load_scene
+from utils.obj_loader import load_scene, load_light_cam_data
 from utils.ppm import save_ppm
 from utils.kernel_manager import KernelManager
 
 
-def _phase_time(label: str, t0: float) -> float:
+def _phase_time(label: str, t0: float, fps=False) -> float:
     """Print elapsed time from t0 and return new timestamp."""
     t1 = time.perf_counter()
-    print(f"[timing] {label:<20}: {t1 - t0:7.2f} s")
+    if fps:
+        print(f"[timing] {label:<20}: {t1 - t0:7.2f} s ({1.0/(t1 - t0):.1f} FPS)")
+    else:
+        print(f"[timing] {label:<20}: {t1 - t0:7.2f} s")
     return t1
 
 
@@ -66,23 +70,51 @@ def main():
     - Saves the output as both PPM and PNG formats
     - Reports render execution time
     """
-    width, height = int(DIMENSION), int(DIMENSION)
-
-    # load scene data
-    # json_file = os.path.join(project_root, "box-advanced", "setup.json")
-    json_file = os.path.join(project_root, "box-sphere-original", "setup.json")
-    triangles, tri_normals, mat_indices, materials, cam_data = load_scene(json_file)
-    origin, p00, qw, qh, light_pos, light_color = build_camera_vectors(
-        cam_data, width, height
-    )
-
     t = _phase_time("python init", t_start)
+    width, height = int(DIMENSION), int(DIMENSION)
+    json_file = os.path.join(project_root, "box-advanced", "setup.json")
+    # json_file = os.path.join(project_root, "box-sphere-original", "setup.json")
 
-    # build bvh and reorder triangles and materials based on the tree structure
-    bvh_nodes, triangles, tri_normals, mat_indices = build_bvh(triangles, tri_normals, mat_indices)
-    assert len(bvh_nodes) > 0
+    cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
+    cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
 
-    t = _phase_time("bvh build", t)
+    # check if cache exists to skip parsing and bvh build
+    if os.path.exists(cache_file):
+        cache = np.load(cache_file)
+
+        bvh_nodes = cache["bvh_nodes"]
+        triangles = cache["triangles"]
+        tri_normals = cache["tri_normals"]
+        mat_indices = cache["mat_indices"]
+        materials = cache["materials"]
+        # load camera setup manually since json is not cached in npz
+        light_data, cam_data, _ = load_light_cam_data(json_file)
+    else:
+        # full build process:
+        triangles, tri_normals, mat_indices, materials, light_data, cam_data = (
+            load_scene(json_file)
+        )
+        assert len(triangles) > 0
+
+        bvh_nodes, triangles, tri_normals, mat_indices = build_bvh(
+            triangles, tri_normals, mat_indices
+        )
+
+        # save arrays to compressed numpy archive
+        np.savez(
+            cache_file,
+            bvh_nodes=bvh_nodes,
+            triangles=triangles,
+            tri_normals=tri_normals,
+            mat_indices=mat_indices,
+            materials=materials,
+        )
+        t = _phase_time("bvh build", t)
+
+    # build light/camera setup vectors
+    origin, p00, qw, qh, light_pos, light_color = build_setup_vectors(
+        light_data, cam_data, width, height
+    )
 
     # allocate memory for framebuffer and statistics
     fb = cuda.device_array((height, width, 3), dtype=np.uint8)
@@ -118,7 +150,7 @@ def main():
     # render with bvh:
     use_bvh = True
     t_bvh = manager.run(grid, threads, locals())
-    t = _phase_time("render (with ds)", t_bvh)
+    t = _phase_time("render (with ds)", t_bvh, fps=True)
 
     # fetch and calculate bvh statistics
     stats_bvh = out_stats.copy_to_host()
