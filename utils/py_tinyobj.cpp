@@ -25,12 +25,13 @@ PYBIND11_MODULE(tinyobjloader_py, m)
                   &attrib, &shapes, &materials, &warn, &err,
                   filename.c_str(), mtl_dir.c_str(), true);
 
-              // check for errors
               if (!ret)
                   throw std::runtime_error(err);
+
               assert(attrib.vertices.size() > 0);
 
-              std::vector<int> indices;
+              std::vector<int> v_indices;
+              std::vector<int> n_indices;
               std::vector<int> material_ids;
 
               // loop over shapes
@@ -42,14 +43,15 @@ PYBIND11_MODULE(tinyobjloader_py, m)
                   for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); f++)
                   {
                       int fv = shape.mesh.num_face_vertices[f];
-                      // !! I am expecting triangles sice triangulation enabled !!
+
                       assert(fv == 3);
 
                       // loop over vertices in the face
                       for (size_t v = 0; v < fv; v++)
                       {
                           tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
-                          indices.push_back(idx.vertex_index);
+                          v_indices.push_back(idx.vertex_index);
+                          n_indices.push_back(idx.normal_index);
                       }
 
                       // get material index for this face
@@ -82,7 +84,7 @@ PYBIND11_MODULE(tinyobjloader_py, m)
                   dst[9] = m.emission[2];
               }
 
-              // return tuple of raw data
-              return py::make_tuple(attrib.vertices, indices, material_ids, mat_array);
+              // return tuple of raw data including normals
+              return py::make_tuple(attrib.vertices, attrib.normals, v_indices, n_indices, material_ids, mat_array);
           });
 }

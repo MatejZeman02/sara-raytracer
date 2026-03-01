@@ -69,9 +69,9 @@ def main():
     width, height = int(DIMENSION), int(DIMENSION)
 
     # load scene data
-    json_file = os.path.join(project_root, "box-advanced", "setup.json")
-    triangles, mat_indices, materials, cam_data = load_scene(json_file)
-
+    # json_file = os.path.join(project_root, "box-advanced", "setup.json")
+    json_file = os.path.join(project_root, "box-sphere-original", "setup.json")
+    triangles, tri_normals, mat_indices, materials, cam_data = load_scene(json_file)
     origin, p00, qw, qh, light_pos, light_color = build_camera_vectors(
         cam_data, width, height
     )
@@ -79,7 +79,7 @@ def main():
     t = _phase_time("python init", t_start)
 
     # build bvh and reorder triangles and materials based on the tree structure
-    bvh_nodes, triangles, mat_indices = build_bvh(triangles, mat_indices)
+    bvh_nodes, triangles, tri_normals, mat_indices = build_bvh(triangles, tri_normals, mat_indices)
     assert len(bvh_nodes) > 0
 
     t = _phase_time("bvh build", t)
@@ -142,6 +142,7 @@ def main():
     img.save(output_path + ".png")
     t = _phase_time("save imgs", t)
 
+    # final total time (+- ending timing output)
     print(f"\n[timing] {'total':<20}: {time.perf_counter() - t_start:7.2f} s")
 
 

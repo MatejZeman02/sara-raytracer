@@ -18,4 +18,5 @@ if [ ! -f "$HW_SCRIPT" ]; then
     exit 1
 fi
 
+# NUMBA_ENABLE_CUDASIM=1 # for debugging in CPU mode
 conda run -n raytracer python "$HW_SCRIPT" || { echo "\nError in $HW_SCRIPT"; exit 1; }

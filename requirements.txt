@@ -4,4 +4,5 @@ numpy>=1.24.0
 numba>=0.58.0
 pybind11
 pillow
+tinyobjloader
 # cudatoolkit>=11.0
