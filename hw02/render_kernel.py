@@ -2,7 +2,7 @@ import math
 import numba
 from numba import cuda
 
-from settings import EPSILON
+from settings import EPSILON, STACK_SIZE
 from utils.vec_utils import (
     neg,
     vec3,
@@ -54,7 +54,6 @@ def get_tri_verts(triangles, idx):
 @cuda.jit(device=True, inline=True, cache=True)
 def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd):
     # traverse scene and return closest intersection data including barycentric coords
-    stack_size = 64
     closest_t = 1e20
     hit_idx = -1
     closest_u = 0.0
@@ -63,12 +62,12 @@ def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd):
     node_tests = 0
 
     if use_bvh:
-        stack = cuda.local.array(stack_size, dtype=numba.int32)
+        stack = cuda.local.array(STACK_SIZE, dtype=numba.int32)
         stack_ptr = 0
         stack[stack_ptr] = 0
 
         while stack_ptr >= 0:
-            assert stack_ptr < stack_size
+            assert stack_ptr < STACK_SIZE
 
             node_idx = stack[stack_ptr]
             stack_ptr -= 1
@@ -133,7 +132,6 @@ def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd):
 def is_in_shadow(triangles, bvh_nodes, use_bvh, shadow_ro, d_l, inv_dl, dist_to_light):
     # any-hit traversal to determine if a point is shadowed
     assert dist_to_light > 0.0
-    stack_size = 64
 
     if not use_bvh:
         for i in range(triangles.shape[0]):
@@ -144,12 +142,12 @@ def is_in_shadow(triangles, bvh_nodes, use_bvh, shadow_ro, d_l, inv_dl, dist_to_
                 return True
         return False
 
-    stack = cuda.local.array(stack_size, dtype=numba.int32)
+    stack = cuda.local.array(STACK_SIZE, dtype=numba.int32)
     stack_ptr = 0
     stack[stack_ptr] = 0
 
     while stack_ptr >= 0:
-        assert stack_ptr < stack_size
+        assert stack_ptr < STACK_SIZE
 
         node_idx = stack[stack_ptr]
         stack_ptr -= 1
@@ -190,7 +188,198 @@ def is_in_shadow(triangles, bvh_nodes, use_bvh, shadow_ro, d_l, inv_dl, dist_to_
     return False
 
 
-# @cuda.jit(debug=True, opt=False, cache=True)
+@cuda.jit(device=True, inline=True, cache=True)
+def compute_inv_dir(dir_vec):
+    inv_x = 1.0 / dir_vec[0] if dir_vec[0] != 0.0 else 1e15
+    inv_y = 1.0 / dir_vec[1] if dir_vec[1] != 0.0 else 1e15
+    inv_z = 1.0 / dir_vec[2] if dir_vec[2] != 0.0 else 1e15
+    return vec3(inv_x, inv_y, inv_z)
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def compute_primary_ray(p00, qw, qh, origin, x, y):
+    # primary ray generation
+    dir_x = p00[0] + x * qw[0] - y * qh[0]
+    dir_y = p00[1] + x * qw[1] - y * qh[1]
+    dir_z = p00[2] + x * qw[2] - y * qh[2]
+
+    ray_dir = normalize(vec3(dir_x, dir_y, dir_z))
+    ray_origin = vec3(origin[0], origin[1], origin[2])
+    inv_rd = compute_inv_dir(ray_dir)
+    return ray_origin, ray_dir, inv_rd
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def write_miss_color(fb, x, y):
+    fb[y, x, 0] = 20.0
+    fb[y, x, 1] = 20.0
+    fb[y, x, 2] = 20.0
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def write_emissive_if_hit(materials, mat_idx, fb, x, y):
+    ke_r = materials[mat_idx, 7]
+    ke_g = materials[mat_idx, 8]
+    ke_b = materials[mat_idx, 9]
+
+    if ke_r > 0.0 or ke_g > 0.0 or ke_b > 0.0:
+        fb[y, x, 0] = min(255, int(ke_r * 255))
+        fb[y, x, 1] = min(255, int(ke_g * 255))
+        fb[y, x, 2] = min(255, int(ke_b * 255))
+        return True
+
+    return False
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def get_vertex_normals(tri_normals, hit_idx):
+    na = vec3(
+        tri_normals[hit_idx, 0, 0],
+        tri_normals[hit_idx, 0, 1],
+        tri_normals[hit_idx, 0, 2],
+    )
+    nb = vec3(
+        tri_normals[hit_idx, 1, 0],
+        tri_normals[hit_idx, 1, 1],
+        tri_normals[hit_idx, 1, 2],
+    )
+    nc = vec3(
+        tri_normals[hit_idx, 2, 0],
+        tri_normals[hit_idx, 2, 1],
+        tri_normals[hit_idx, 2, 2],
+    )
+    return na, nb, nc
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def compute_surface_normal(triangles, tri_normals, hit_idx, ray_dir, hit_u, hit_v):
+    # fetch hit triangle vertices
+    a, b, c = get_tri_verts(triangles, hit_idx)
+
+    geom_n = normalize(cross(sub(b, a), sub(c, a)))
+    is_backface = not is_valid_normal(
+        geom_n, ray_dir
+    )  # if true normal facing wrong way
+    if is_backface:
+        geom_n = neg(geom_n)
+
+    na, nb, nc = get_vertex_normals(tri_normals, hit_idx)
+
+    # throw error if vertex normals are missing from obj
+    assert (
+        na[0] != 0.0 or na[1] != 0.0 or na[2] != 0.0
+    ), "\n\nAssertionError:\nVertex normals are missing from the obj file"
+
+    # compute w barycentric weight
+    w = 1.0 - hit_u - hit_v
+
+    # verify coordinate sanity
+    assert w >= -EPSILON and w <= 1.0 + EPSILON
+
+    # interpolate normal using weights
+    interp_x = w * na[0] + hit_u * nb[0] + hit_v * nc[0]
+    interp_y = w * na[1] + hit_u * nb[1] + hit_v * nc[1]
+    interp_z = w * na[2] + hit_u * nb[2] + hit_v * nc[2]
+
+    n = normalize(vec3(interp_x, interp_y, interp_z))
+    if is_backface:
+        n = neg(n)
+
+    return a, b, c, na, nb, nc, geom_n, n, w, is_backface
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def compute_shadow_ray_origin(
+    a, b, c, na, nb, nc, w, hit_u, hit_v, p, geom_n, is_backface
+):
+    # CHIANG'S analytical terminator offset
+    if na[0] == 0.0 and na[1] == 0.0 and na[2] == 0.0:
+        # fallback for flat walls without vertex normals
+        return add(p, mul(geom_n, EPSILON))
+
+    # for curved objects with normals:
+    # if we are inside, we must work with flipped normals
+    fa_ = neg(na) if is_backface else na
+    fb_ = neg(nb) if is_backface else nb
+    fc_ = neg(nc) if is_backface else nc
+
+    # project point P onto tangent planes of vertices
+    t_a = dot(sub(a, p), fa_)
+    p_a = add(p, mul(fa_, t_a))
+
+    t_b = dot(sub(b, p), fb_)
+    p_b = add(p, mul(fb_, t_b))
+
+    t_c = dot(sub(c, p), fc_)
+    p_c = add(p, mul(fc_, t_c))
+
+    # barycentric interpolation of these projections (point on virtual curve)
+    p_curve = add(add(mul(p_a, w), mul(p_b, hit_u)), mul(p_c, hit_v))
+
+    # shift origin to this curve + add EPSILON safeguard against float precision errors
+    return add(p_curve, mul(geom_n, EPSILON))
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def compute_shadowed(
+    triangles,
+    bvh_nodes,
+    use_bvh,
+    a,
+    b,
+    c,
+    na,
+    nb,
+    nc,
+    w,
+    hit_u,
+    hit_v,
+    p,
+    geom_n,
+    is_backface,
+    d_l,
+    dist_to_light,
+):
+    shadow_ro = compute_shadow_ray_origin(
+        a, b, c, na, nb, nc, w, hit_u, hit_v, p, geom_n, is_backface
+    )
+    inv_dl = compute_inv_dir(d_l)
+    return is_in_shadow(
+        triangles, bvh_nodes, use_bvh, shadow_ro, d_l, inv_dl, dist_to_light
+    )
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def compute_lit_color(materials, mat_idx, light_color, n, v_vec, d_l, shadowed):
+    # fetch material properties
+    r_d = vec3(materials[mat_idx, 0], materials[mat_idx, 1], materials[mat_idx, 2])
+    r_s = vec3(materials[mat_idx, 3], materials[mat_idx, 4], materials[mat_idx, 5])
+    h_val = materials[mat_idx, 6]
+    l_color = vec3(light_color[0], light_color[1], light_color[2])
+
+    # apply shading based on visibility
+    if shadowed:
+        return vec3(0.0, 0.0, 0.0)
+
+    return cook_torrance_shading(n, v_vec, d_l, r_d, r_s, h_val, l_color)
+
+
+@cuda.jit(device=True, inline=True, cache=True)
+def write_color_to_fb(color, fb, x, y):
+    # apply srgb transfer function and write to framebuffer
+    r_srgb = int(linear_to_srgb(color[0]) * 255)
+    g_srgb = int(linear_to_srgb(color[1]) * 255)
+    b_srgb = int(linear_to_srgb(color[2]) * 255)
+
+    fb[y, x, 0] = min(255, r_srgb)
+    fb[y, x, 1] = min(255, g_srgb)
+    fb[y, x, 2] = min(255, b_srgb)
+
+
+################### MAIN RENDER KERNEL ###################
+
+
+# @cuda.jit(debug=True, opt=False, cache=True) # turn on asserts
 @cuda.jit(cache=True)
 def render_kernel(
     triangles,
@@ -211,22 +400,9 @@ def render_kernel(
     height,
 ):
     x, y = cuda.grid(2)
-    if x >= width or y >= height:
-        return
+    assert x < width and y < height
 
-    # primary ray generation
-    dir_x = p00[0] + x * qw[0] - y * qh[0]
-    dir_y = p00[1] + x * qw[1] - y * qh[1]
-    dir_z = p00[2] + x * qw[2] - y * qh[2]
-
-    ray_dir = normalize(vec3(dir_x, dir_y, dir_z))
-    ray_origin = vec3(origin[0], origin[1], origin[2])
-
-    # precompute inverse ray direction for faster aabb tests
-    inv_dir_x = 1.0 / ray_dir[0] if ray_dir[0] != 0.0 else 1e15
-    inv_dir_y = 1.0 / ray_dir[1] if ray_dir[1] != 0.0 else 1e15
-    inv_dir_z = 1.0 / ray_dir[2] if ray_dir[2] != 0.0 else 1e15
-    inv_rd = vec3(inv_dir_x, inv_dir_y, inv_dir_z)
+    ray_origin, ray_dir, inv_rd = compute_primary_ray(p00, qw, qh, origin, x, y)
 
     # find the closest triangle intersection
     closest_t, hit_idx, hit_u, hit_v, tri_tests, node_tests = get_closest_hit(
@@ -238,68 +414,16 @@ def render_kernel(
 
     # no hit returns dark gray background
     if hit_idx == -1:
-        fb[y, x, 0] = 20
-        fb[y, x, 1] = 20
-        fb[y, x, 2] = 20
+        write_miss_color(fb, x, y)
         return
 
-    # hit point material parameters
     mat_idx = mat_indices[hit_idx]
-    ke_r = materials[mat_idx, 7]
-    ke_g = materials[mat_idx, 8]
-    ke_b = materials[mat_idx, 9]
-
-    # pure emission without shading
-    if ke_r > 0.0 or ke_g > 0.0 or ke_b > 0.0:
-        fb[y, x, 0] = min(255, int(ke_r * 255))
-        fb[y, x, 1] = min(255, int(ke_g * 255))
-        fb[y, x, 2] = min(255, int(ke_b * 255))
+    if write_emissive_if_hit(materials, mat_idx, fb, x, y):
         return
 
-    # fetch hit triangle vertices
-    a, b, c = get_tri_verts(triangles, hit_idx)
-
-    geom_n = normalize(cross(sub(b, a), sub(c, a)))
-    is_backface = not is_valid_normal(geom_n, ray_dir)  # if true normal facing wrong way
-    if is_backface:
-        geom_n = neg(geom_n)
-
-    # fetch vertex normals
-    na = vec3(
-        tri_normals[hit_idx, 0, 0],
-        tri_normals[hit_idx, 0, 1],
-        tri_normals[hit_idx, 0, 2],
+    a, b, c, na, nb, nc, geom_n, n, w, is_backface = compute_surface_normal(
+        triangles, tri_normals, hit_idx, ray_dir, hit_u, hit_v
     )
-    nb = vec3(
-        tri_normals[hit_idx, 1, 0],
-        tri_normals[hit_idx, 1, 1],
-        tri_normals[hit_idx, 1, 2],
-    )
-    nc = vec3(
-        tri_normals[hit_idx, 2, 0],
-        tri_normals[hit_idx, 2, 1],
-        tri_normals[hit_idx, 2, 2],
-    )
-
-    # use fallback if vertex normals are missing from obj
-    if na[0] == 0.0 and na[1] == 0.0 and na[2] == 0.0:
-        assert (
-            False
-        ), "\n\nAssertionError:\nVertex normals are missing from the obj file"
-    # compute w barycentric weight
-    w = 1.0 - hit_u - hit_v
-
-    # verify coordinate sanity
-    assert w >= -EPSILON and w <= 1.0 + EPSILON
-
-    # interpolate normal using weights
-    interp_x = w * na[0] + hit_u * nb[0] + hit_v * nc[0]
-    interp_y = w * na[1] + hit_u * nb[1] + hit_v * nc[1]
-    interp_z = w * na[2] + hit_u * nb[2] + hit_v * nc[2]
-
-    n = normalize(vec3(interp_x, interp_y, interp_z))
-    if is_backface:
-        n = neg(n)
 
     p = add(ray_origin, mul(ray_dir, closest_t))
 
@@ -319,41 +443,29 @@ def render_kernel(
     # verify valid float computation
     assert math.isfinite(n_dot_l)
 
-    # self shadowing check
-    # if n_dot_l <= 0.0:
-    #     shadowed = True
-    # else:
-    # offset origin along normal using geometric normal to prevent shadow acne
-    shadow_ro = add(p, mul(geom_n, EPSILON))
-
-    # precompute inverse shadow direction
-    inv_dl_x = 1.0 / d_l[0] if d_l[0] != 0.0 else 1e15
-    inv_dl_y = 1.0 / d_l[1] if d_l[1] != 0.0 else 1e15
-    inv_dl_z = 1.0 / d_l[2] if d_l[2] != 0.0 else 1e15
-    inv_dl = vec3(inv_dl_x, inv_dl_y, inv_dl_z)
-
-    # test for shadows using any-hit optimization
-    shadowed = is_in_shadow(
-        triangles, bvh_nodes, use_bvh, shadow_ro, d_l, inv_dl, dist_to_light
-    )
-
-    # fetch material properties
-    r_d = vec3(materials[mat_idx, 0], materials[mat_idx, 1], materials[mat_idx, 2])
-    r_s = vec3(materials[mat_idx, 3], materials[mat_idx, 4], materials[mat_idx, 5])
-    h_val = materials[mat_idx, 6]
-    l_color = vec3(light_color[0], light_color[1], light_color[2])
-
-    # apply shading based on visibility
-    if shadowed:
-        color = vec3(0.0, 0.0, 0.0)  # FIXME: for now black
+    # self shadowing check - optimization
+    if n_dot_l <= 0.0:
+        shadowed = True
     else:
-        color = cook_torrance_shading(n, v_vec, d_l, r_d, r_s, h_val, l_color)
+        shadowed = compute_shadowed(
+            triangles,
+            bvh_nodes,
+            use_bvh,
+            a,
+            b,
+            c,
+            na,
+            nb,
+            nc,
+            w,
+            hit_u,
+            hit_v,
+            p,
+            geom_n,
+            is_backface,
+            d_l,
+            dist_to_light,
+        )
 
-    # apply srgb transfer function and write to framebuffer
-    r_srgb = linear_to_srgb(color[0])
-    g_srgb = linear_to_srgb(color[1])
-    b_srgb = linear_to_srgb(color[2])
-
-    fb[y, x, 0] = min(255, int(r_srgb * 255))
-    fb[y, x, 1] = min(255, int(g_srgb * 255))
-    fb[y, x, 2] = min(255, int(b_srgb * 255))
+    color = compute_lit_color(materials, mat_idx, light_color, n, v_vec, d_l, shadowed)
+    write_color_to_fb(color, fb, x, y)
