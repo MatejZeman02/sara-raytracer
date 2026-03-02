@@ -4,7 +4,7 @@ import numpy as np
 
 
 def build_setup_vectors(light_data, cam_data, width, height):
-    fov = cam_data["fov"]
+    fov = np.float32(cam_data["fov"])
     origin = np.array(cam_data["pos"], dtype=np.float32)
     dir_vec = np.array(cam_data["dir"], dtype=np.float32)
     up_vec = np.array(cam_data["up"], dtype=np.float32)
@@ -12,7 +12,7 @@ def build_setup_vectors(light_data, cam_data, width, height):
     b_vec = np.cross(dir_vec, up_vec)
     b_vec = b_vec / np.linalg.norm(b_vec)
 
-    t = 1.0  # focal length
+    t = np.float32(1.0)  # focal length
     g_w = 2.0 * t * np.tan(fov / 2.0)
     g_h = g_w * (height / width)
 

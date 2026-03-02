@@ -1,5 +1,3 @@
-"""Utility class to manage CUDA kernel execution with dynamic argument resolution and precompilation."""
-
 import inspect
 import numpy as np
 from numba import cuda
@@ -12,7 +10,7 @@ class KernelManager:
         self.arg_names = list(inspect.signature(kernel_func).parameters.keys())
 
     def _resolve_args(self, local_vars):
-        """maps local variables and handles automatic gpu transfers."""
+        """maps local variables and handles automatic gpu transfers and precision enforcement."""
         gpu_args = []
         for name in self.arg_names:
             # find the variable name (handles 'd_' prefix logic)
@@ -26,21 +24,28 @@ class KernelManager:
             # check if it's already a numba device array
             if isinstance(val, cuda.devicearray.DeviceNDArray):
                 gpu_args.append(val)
+
+            # handle numpy arrays (convert float64 to float32)
             elif isinstance(val, np.ndarray):
-                # upload to gpu and update the local scope so next time is faster
-                gpu_val = cuda.to_device(
-                    val.astype(np.float32) if val.dtype == np.float64 else val
-                )
+                if val.dtype == np.float64:
+                    val = val.astype(np.float32)
+                gpu_val = cuda.to_device(val)
+                # update local scope to avoid re-uploading next time
                 local_vars[search_name] = gpu_val
                 gpu_args.append(gpu_val)
-            else:
-                # pass scalars (int, float) directly
+
+            # handle scalars (convert python floats to float32)
+            elif isinstance(val, (float, np.float64)):
+                gpu_val = np.float32(val)
+                # don't need to update local_vars for scalars but for consistency
+                gpu_args.append(gpu_val)
+            else:  # no change
                 gpu_args.append(val)
 
         return gpu_args
 
     def precompile_run(self, local_vars):
-        """runs kernel on 1x1 grid using real data to trigger accurate jit compilation."""
+        """runs kernel on 1x1 grid using real data types to trigger compilation."""
         args = self._resolve_args(local_vars)
         assert len(args) == len(self.arg_names), "argument count mismatch during warmup"
 

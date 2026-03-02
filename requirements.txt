@@ -4,5 +4,7 @@ numpy>=1.24.0
 numba>=0.58.0
 pybind11
 pillow
-tinyobjloader
+# ncu
+# ncu-ui
+# tinyobjloader compiled c++ with pybind11
 # cudatoolkit>=11.0

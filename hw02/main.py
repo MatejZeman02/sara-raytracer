@@ -13,7 +13,6 @@ import os
 import sys
 import warnings
 import math
-import json
 
 # 3rd party imports:
 import numpy as np
@@ -32,7 +31,7 @@ if project_root not in sys.path:
 # local imports:
 from hw02.setup_vectors import build_setup_vectors
 from render_kernel import render_kernel
-from settings import BLOCK_THREADS, DIMENSION, RENDER_NON_BVH_STATS
+from settings import BLOCK_THREADS, DIMENSION, RENDER_NON_BVH_STATS, USE_CACHE
 from bvh import build_bvh
 from utils.obj_loader import load_scene, load_light_cam_data
 from utils.ppm import save_ppm
@@ -79,7 +78,7 @@ def main():
     cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
 
     # check if cache exists to skip parsing and bvh build
-    if os.path.exists(cache_file):
+    if os.path.exists(cache_file) and USE_CACHE:
         cache = np.load(cache_file)
 
         bvh_nodes = cache["bvh_nodes"]
@@ -149,7 +148,9 @@ def main():
 
     # render with bvh:
     use_bvh = True
+    cuda.profile_start()
     t_bvh = manager.run(grid, threads, locals())
+    cuda.profile_stop()
     t = _phase_time("render (with ds)", t_bvh, fps=True)
 
     # fetch and calculate bvh statistics

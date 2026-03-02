@@ -2,12 +2,13 @@
 
 import math
 from numba import cuda
+from numpy import float32
 
 from utils.vec_utils import vec3, mul_vec, cross, dot, sub
 from settings import CULLBACK, EPSILON, INFINITY_VEC
 
 
-@cuda.jit(device=True, inline=True)
+@cuda.jit(device=True, inline=True, fastmath=True)
 def intersect_aabb(ro, inv_rd, bmin, bmax):
     """Ray-AABB intersection test using the slab method."""
     # calculate intersection t-values for all axes
@@ -29,7 +30,7 @@ def intersect_aabb(ro, inv_rd, bmin, bmax):
     tmax = min(tmax_x, min(tmax_y, tmax_z))
 
     # ray hits box if tmax is greater than or equal to max(tmin, 0.0)
-    hit = tmax >= max(tmin, 0.0)
+    hit = tmax >= max(tmin, float32(0.0))
 
     return hit, tmin
 
@@ -49,17 +50,17 @@ def intersect_triangle(ro, rd, a, b, c):
         if math.fabs(det) < EPSILON:
             return INFINITY_VEC
 
-    inv_det = 1.0 / det
+    inv_det = float32(1.0) / det
     tvec = sub(ro, a)
     u = dot(tvec, pvec) * inv_det
 
-    if u < 0.0 or u > 1.0:
+    if u < float32(0.0) or u > float32(1.0):
         return INFINITY_VEC
 
     qvec = cross(tvec, e1)
     v = dot(rd, qvec) * inv_det
 
-    if v < 0.0 or u + v > 1.0:
+    if v < float32(0.0) or u + v > float32(1.0):
         return INFINITY_VEC
 
     t = dot(e2, qvec) * inv_det

@@ -1,5 +1,10 @@
 # compiled C extensions
 *.so
+
+# Nvidia nsight report
+*.ncu-rep
+*.csv
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
