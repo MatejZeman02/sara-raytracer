@@ -184,21 +184,9 @@ def is_in_shadow(
 @device_jit
 def compute_inv_dir(dir_vec):
     """optimalization to divide only once per ray"""
-    inv_x = (
-        ONE / dir_vec[0]
-        if dir_vec[0] != ZERO
-        else np.float32(1e15)
-    )
-    inv_y = (
-        ONE / dir_vec[1]
-        if dir_vec[1] != ZERO
-        else np.float32(1e15)
-    )
-    inv_z = (
-        ONE / dir_vec[2]
-        if dir_vec[2] != ZERO
-        else np.float32(1e15)
-    )
+    inv_x = ONE / dir_vec[0] if dir_vec[0] != ZERO else np.float32(1e15)
+    inv_y = ONE / dir_vec[1] if dir_vec[1] != ZERO else np.float32(1e15)
+    inv_z = ONE / dir_vec[2] if dir_vec[2] != ZERO else np.float32(1e15)
     return vec3(inv_x, inv_y, inv_z)
 
 
@@ -288,11 +276,7 @@ def compute_shadow_ray_origin(
     a, b, c, na, nb, nc, w, hit_u, hit_v, p, geom_n, is_backface
 ):
     """CHIANG'S analytical terminator offset @Disney 2019"""
-    if (
-        na[0] == ZERO
-        and na[1] == ZERO
-        and na[2] == ZERO
-    ):
+    if na[0] == ZERO and na[1] == ZERO and na[2] == ZERO:
         return add(p, mul(geom_n, EPSILON))
 
     fa_ = neg(na) if is_backface else na
@@ -367,11 +351,7 @@ def write_color_to_fb(cr, cg, cb, fb, x, y):
 @device_jit
 def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
     """compute refraction ray direction and origin"""
-    rel_ior = (
-        ior
-        if is_backface
-        else (ONE / ior if ior != ZERO else ONE)
-    )
+    rel_ior = ior if is_backface else (ONE / ior if ior != ZERO else ONE)
     cos_i = dot(ray_dir, n)
     k = ONE - (rel_ior * rel_ior) * (ONE - (cos_i * cos_i))
 
@@ -401,7 +381,8 @@ def compute_reflection(ray_dir, n, geom_n, p):
     return new_dir, new_origin
 
 
-@device_jit(inline=False)
+# @device_jit(inline=False, device=False)
+@device_jit()
 def render_pixel(
     triangles,
     tri_normals,
@@ -601,7 +582,7 @@ if DEVICE == "cpu":
                 )
 
 else:
-
+    # CUDA GPU:
     @cuda.jit(fastmath=True)
     def render_kernel(
         triangles,
