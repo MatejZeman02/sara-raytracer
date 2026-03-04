@@ -5,7 +5,7 @@ import numpy as np
 from numba import cuda, njit
 
 from settings import DEVICE, MAX_BOUNCES
-from constants import EPSILON, STACK_SIZE
+from constants import EPSILON, STACK_SIZE, ZERO, ONE, HALF
 
 from utils import device_jit
 from utils.vec_utils import (
@@ -26,9 +26,9 @@ from shading import cook_torrance_shading
 @device_jit
 def render_normals(n, fb, x, y):
     """[Debug]: output normals as colors"""
-    r_val = (n[0] + np.float32(1.0)) * np.float32(0.5)
-    g_val = (n[1] + np.float32(1.0)) * np.float32(0.5)
-    b_val = (n[2] + np.float32(1.0)) * np.float32(0.5)
+    r_val = (n[0] + ONE) * HALF
+    g_val = (n[1] + ONE) * HALF
+    b_val = (n[2] + ONE) * HALF
 
     fb[y, x, 0] = min(255, int(r_val * np.float32(255.0)))
     fb[y, x, 1] = min(255, int(g_val * np.float32(255.0)))
@@ -38,7 +38,7 @@ def render_normals(n, fb, x, y):
 @device_jit
 def is_valid_normal(n, ray_dir):
     """check if normal is valid (not facing wrong way)"""
-    return dot(ray_dir, n) < np.float32(0.0)
+    return dot(ray_dir, n) < ZERO
 
 
 @device_jit
@@ -56,8 +56,8 @@ def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, 
     """traverse scene and return closest intersection data including barycentric coords"""
     closest_t = 1e20
     hit_idx = -1
-    closest_u = np.float32(0.0)
-    closest_v = np.float32(0.0)
+    closest_u = ZERO
+    closest_v = ZERO
     tri_tests = 0
     node_tests = 0
 
@@ -88,7 +88,7 @@ def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, 
                     node_idx, 7
                 ]  # number of triangles for leaves or negative right child
 
-                if data2 > np.float32(0.0):
+                if data2 > ZERO:
                     start = int(data1)
                     count = int(data2)
                     for i in range(start, start + count):
@@ -161,7 +161,7 @@ def is_in_shadow(
             data1 = bvh_nodes[node_idx, 6]
             data2 = bvh_nodes[node_idx, 7]
 
-            if data2 > np.float32(0.0):
+            if data2 > ZERO:
                 start = int(data1)
                 count = int(data2)
                 for i in range(start, start + count):
@@ -185,18 +185,18 @@ def is_in_shadow(
 def compute_inv_dir(dir_vec):
     """optimalization to divide only once per ray"""
     inv_x = (
-        np.float32(1.0) / dir_vec[0]
-        if dir_vec[0] != np.float32(0.0)
+        ONE / dir_vec[0]
+        if dir_vec[0] != ZERO
         else np.float32(1e15)
     )
     inv_y = (
-        np.float32(1.0) / dir_vec[1]
-        if dir_vec[1] != np.float32(0.0)
+        ONE / dir_vec[1]
+        if dir_vec[1] != ZERO
         else np.float32(1e15)
     )
     inv_z = (
-        np.float32(1.0) / dir_vec[2]
-        if dir_vec[2] != np.float32(0.0)
+        ONE / dir_vec[2]
+        if dir_vec[2] != ZERO
         else np.float32(1e15)
     )
     return vec3(inv_x, inv_y, inv_z)
@@ -264,12 +264,12 @@ def compute_surface_normal(triangles, tri_normals, hit_idx, ray_dir, hit_u, hit_
 
     # throw error if vertex normals are missing from obj
     assert (
-        na[0] != np.float32(0.0) or na[1] != np.float32(0.0) or na[2] != np.float32(0.0)
+        na[0] != ZERO or na[1] != ZERO or na[2] != ZERO
     ), "vertex normals are missing from the obj file"
     # compute w barycentric weight
-    w = np.float32(1.0) - hit_u - hit_v
+    w = ONE - hit_u - hit_v
     # verify coordinate sanity
-    assert w >= -EPSILON and w <= np.float32(1.0) + EPSILON
+    assert w >= -EPSILON and w <= ONE + EPSILON
 
     # interpolate normal using weights
     interp_x = w * na[0] + hit_u * nb[0] + hit_v * nc[0]
@@ -289,9 +289,9 @@ def compute_shadow_ray_origin(
 ):
     """CHIANG'S analytical terminator offset @Disney 2019"""
     if (
-        na[0] == np.float32(0.0)
-        and na[1] == np.float32(0.0)
-        and na[2] == np.float32(0.0)
+        na[0] == ZERO
+        and na[1] == ZERO
+        and na[2] == ZERO
     ):
         return add(p, mul(geom_n, EPSILON))
 
@@ -348,7 +348,7 @@ def compute_lit_color(materials, mat_idx, light_color, n, v_vec, d_l, shadowed):
     l_color = vec3(light_color[0], light_color[1], light_color[2])
 
     if shadowed:
-        return vec3(np.float32(0.0), np.float32(0.0), np.float32(0.0))
+        return vec3(ZERO, ZERO, ZERO)
     return cook_torrance_shading(n, v_vec, d_l, r_d, r_s, h_val, l_color)
 
 
@@ -370,12 +370,12 @@ def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
     rel_ior = (
         ior
         if is_backface
-        else (np.float32(1.0) / ior if ior != np.float32(0.0) else np.float32(1.0))
+        else (ONE / ior if ior != ZERO else ONE)
     )
     cos_i = dot(ray_dir, n)
-    k = np.float32(1.0) - (rel_ior * rel_ior) * (np.float32(1.0) - (cos_i * cos_i))
+    k = ONE - (rel_ior * rel_ior) * (ONE - (cos_i * cos_i))
 
-    if k < np.float32(0.0):
+    if k < ZERO:
         # total internal reflection
         new_dir = sub(ray_dir, mul(n, np.float32(2.0) * cos_i))
         new_origin = add(p, mul(geom_n, EPSILON))
@@ -428,8 +428,8 @@ def render_pixel(
     assert y >= 0
 
     ray_origin, ray_dir, inv_rd = compute_primary_ray(p00, qw, qh, origin, x, y)
-    f0 = np.float32(0.0)
-    f1 = np.float32(1.0)
+    f0 = ZERO
+    f1 = ONE
 
     final_r, final_g, final_b = f0, f0, f0
     thr_r, thr_g, thr_b = f1, f1, f1

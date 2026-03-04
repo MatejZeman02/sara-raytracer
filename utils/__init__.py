@@ -18,6 +18,7 @@ def device_jit(*args, **kwargs):
         from numba import cuda
 
         kwargs.setdefault("device", True)
+        kwargs.setdefault("fastmath", True)
         # defaults to inline=True for gpu if not explicitly provided
         kwargs.setdefault("inline", True)
 

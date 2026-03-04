@@ -6,7 +6,7 @@ from numpy import float32
 from utils import device_jit
 from utils.vec_utils import vec3, mul_vec, cross, dot, sub
 from settings import CULLBACK
-from constants import EPSILON, INFINITY_VEC
+from constants import EPSILON, INFINITY_VEC, ZERO, ONE
 
 @device_jit
 def intersect_aabb(ro, inv_rd, bmin, bmax):
@@ -30,7 +30,7 @@ def intersect_aabb(ro, inv_rd, bmin, bmax):
     tmax = min(tmax_x, min(tmax_y, tmax_z))
 
     # ray hits box if tmax is greater than or equal to max(tmin, 0.0)
-    hit = tmax >= max(tmin, float32(0.0))
+    hit = tmax >= max(tmin, ZERO)
 
     return hit, tmin
 
@@ -50,17 +50,17 @@ def intersect_triangle(ro, rd, a, b, c):
         if float32(math.fabs(det)) < EPSILON:
             return INFINITY_VEC
 
-    inv_det = float32(1.0) / det
+    inv_det = ONE / det
     tvec = sub(ro, a)
     u = dot(tvec, pvec) * inv_det
 
-    if u < float32(0.0) or u > float32(1.0):
+    if u < ZERO or u > ONE:
         return INFINITY_VEC
 
     qvec = cross(tvec, e1)
     v = dot(rd, qvec) * inv_det
 
-    if v < float32(0.0) or u + v > float32(1.0):
+    if v < ZERO or u + v > ONE:
         return INFINITY_VEC
 
     t = dot(e2, qvec) * inv_det

@@ -10,5 +10,6 @@ STACK_SIZE = 64
 
 # 32 bits float constants (It's almost like in OpenGl):
 ZERO = float32(0.0)
+HALF = float32(0.5)
 ONE = float32(1.0)
 TWO = float32(2.0)

@@ -10,7 +10,7 @@
 #SBATCH --mem=4G
 
 PROJECT_ROOT="/home/zemanm40/ni-gpu/zemanm40"
-HW_SCRIPT="$PROJECT_ROOT/hw02/main.py"
+HW_SCRIPT="$PROJECT_ROOT/src/main.py"
 
 source "$PROJECT_ROOT/.venv/bin/activate"
 

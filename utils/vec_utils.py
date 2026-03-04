@@ -4,6 +4,7 @@ import math
 from numpy import float32
 
 from utils import device_jit
+from utils import ZERO, ONE
 
 
 @device_jit
@@ -64,8 +65,8 @@ def dot(a, b):
 def normalize(a):
     """Normalize a 3D vector."""
     l = length(a)
-    if l > float32(0.0):
-        return mul(a, float32(1.0) / l)
+    if l > ZERO:
+        return mul(a, ONE / l)
     return vec3(a[0], a[1], a[2])
 
 
@@ -110,7 +111,7 @@ def neg(a):
 # @cuda.jit(device=True, inline=True, fastmath=True)
 # def mix(a, b, t):
 #     """Linear interpolation between vectors a and b by t."""
-#     return add(mul(a, float32(1.0) - t), mul(b, t))
+#     return add(mul(a, ONE - t), mul(b, t))
 
 
 # @cuda.jit(device=True, inline=True, fastmath=True)
@@ -142,7 +143,7 @@ def linear_to_srgb(c):
     """Convert linear color component (float) to sRGB."""
     if c <= float32(0.0031308):
         return float32(12.92) * c
-    return float32(1.055) * math.pow(c, float32(1.0) / float32(2.4)) - float32(0.055)
+    return float32(1.055) * math.pow(c, ONE / float32(2.4)) - float32(0.055)
 
 
 @device_jit

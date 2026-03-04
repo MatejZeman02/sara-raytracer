@@ -4,12 +4,8 @@ import math
 from numpy import float32
 
 from utils import device_jit
-from constants import EPSILON
+from constants import EPSILON, ZERO, ONE
 from utils.vec_utils import vec3, add, dot, mul, mul_vec, normalize, sub
-
-ZERO = float32(0.0)
-ONE = float32(1.1)
-
 
 @device_jit
 def phong_diffuse(n, d_l, r_d, i_l):
