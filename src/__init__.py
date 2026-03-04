@@ -146,9 +146,9 @@ def main():
     avg_tris_bvh = np.mean(stats_bvh[:, :, 0])
     avg_nodes_bvh = np.mean(stats_bvh[:, :, 1])
 
-    print(
-        f"\t- normal BVH with avg O(log(n)) * 2 ~ {(np.ceil(np.log2(len(triangles))) * 2):.0f}"
-    )
+    # print(
+    #     f"\t- normal BVH with avg O(log(n)) * 2 ~ {(np.ceil(np.log2(len(triangles))) * 2):.0f}"
+    # )
     print(f"\t- avg bvh node tests per ray (with ds): {avg_nodes_bvh:.0f}")
     print(f"\t- avg triangle tests per ray (with ds): {avg_tris_bvh:.0f}")
 
