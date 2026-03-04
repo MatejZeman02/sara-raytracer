@@ -4,7 +4,7 @@ DEVICE = "gpu"  # "cpu" or "gpu"
 CULLBACK = True
 
 # for CPU python run:
-CPU_DIMENSION = 600
+CPU_DIMENSION = 1440
 # for GPU runs:
 # 3070 mobile (local):
 GPU_DIMENSION = 1440

@@ -4,8 +4,9 @@ import math
 from numpy import float32
 
 from utils import device_jit
-from utils import ZERO, ONE
 
+ONE = float32(1.0)
+ZERO = float32(0.0)
 
 @device_jit
 def vec3(x, y, z):
