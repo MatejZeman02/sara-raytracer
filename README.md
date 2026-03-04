@@ -13,7 +13,7 @@ The output will be in the homework folder as `output.ppm/png`.
 
 I use the c++ header tiny-obj-loader library together with python bindings. I parsed the triangles there too. So user on different machine needs to recompile it for there is older version of python on the cluster or your device.
 
-Use `./rebuild_tinyobjloader.sh` for compilation from the root directory.
+Use `./rebuild_tinyobjloader.sh` for compilation from the root directory. Note: For each homework branch may be different version of the library. So recompiling is adviced.
 
 ## Render Times
 
