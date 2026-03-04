@@ -167,6 +167,19 @@ def main():
 
     print(f"\n[timing] {'total':<20}: {time.perf_counter() - t_start:7.2f} s")
 
+    # for float 64 hunting: (and line debug info in the kernel enabled)
+    # # print the compiled assembly
+    # ptx_code = render_kernel.inspect_asm()
+    # for signature, ptx in ptx_code.items():
+    #     # count double precision instructions
+    #     f64_count = ptx.count(".f64")
+    #     if f64_count > 0:
+    #         print(f"FP64 instructions: {f64_count}")
+
+    #     # save to file to search for "cvt.f64.f32" (conversion)
+    #     with open("kernel.ptx", "w") as f:
+    #         f.write(ptx)
+
 
 # expose 'main' as the only public symbol of the package
 __all__ = ["main"]

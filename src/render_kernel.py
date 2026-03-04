@@ -91,7 +91,7 @@ def render_pixel(
         l_pos = vec3(light_pos[0], light_pos[1], light_pos[2])
         l_dir_vec = sub(l_pos, p)
 
-        dist_to_light = float32(sqrt(dot(l_dir_vec, l_dir_vec)))
+        dist_to_light = sqrt(dot(l_dir_vec, l_dir_vec))
         assert dist_to_light > 0.0
 
         d_l = normalize(l_dir_vec)
@@ -100,7 +100,7 @@ def render_pixel(
         n_dot_l = dot(n, d_l)
         assert isfinite(n_dot_l)
 
-        if n_dot_l <= 0.0:
+        if n_dot_l <= ZERO:
             shadowed = True
         else:
             shadowed = compute_shadowed(
@@ -192,8 +192,8 @@ if DEVICE == "cpu":
         height,
     ):
         """cpu entry point, loops over all pixels with parallel rows"""
-        assert width > 0
-        assert height > 0
+        assert width > ZERO
+        assert height > ZERO
         for y in prange(height):
             for x in range(width):
                 stack = empty(STACK_SIZE, dtype=int32)
@@ -221,6 +221,7 @@ if DEVICE == "cpu":
 
 else:
     # CUDA GPU:
+    # @cuda.jit(fastmath=True, lineinfo=True)
     @cuda.jit(fastmath=True)
     def render_kernel(
         triangles,

@@ -1,6 +1,7 @@
 """Constants for kernels."""
 
-from numpy import float32
+import math
+from numpy import float32, uint8
 
 EPSILON = float32(1e-4)  # dynamic to size of the scene
 BARYCENTRIC_EPSILON = float32(1e-7)  # acounts with float32 precision error
@@ -16,3 +17,6 @@ ZERO = float32(0.0)
 HALF = float32(0.5)
 ONE = float32(1.0)
 TWO = float32(2.0)
+UINT8_MAX_F = float32(255.0)
+UINT8_MAX_I = uint8(255)
+PI = float32(math.pi)

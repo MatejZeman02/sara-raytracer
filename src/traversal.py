@@ -1,3 +1,5 @@
+from numpy import float32
+
 from utils import device_jit
 from utils.vec_utils import vec3
 from intersection import intersect_triangle, intersect_aabb
@@ -8,7 +10,7 @@ from constants import ZERO, EPSILON, STACK_SIZE
 @device_jit
 def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, stack):
     """traverse scene and return closest intersection data including barycentric coords"""
-    closest_t = 1e20
+    closest_t = float32(1e20)
     hit_idx = -1
     closest_u = ZERO
     closest_v = ZERO

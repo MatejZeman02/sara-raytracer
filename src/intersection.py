@@ -1,7 +1,6 @@
 """Device functions for intersection tests."""
 
 import math
-from numpy import float32
 
 from utils import device_jit
 from utils.vec_utils import vec3, mul_vec, cross, dot, sub
@@ -47,7 +46,7 @@ def intersect_triangle(ro, rd, a, b, c):
         if det < EPSILON:
             return INFINITY_VEC
     else:
-        if float32(math.fabs(det)) < EPSILON:
+        if math.fabs(det) < EPSILON:
             return INFINITY_VEC
 
     inv_det = ONE / det

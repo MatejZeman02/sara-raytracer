@@ -4,7 +4,7 @@ import math
 from numpy import float32
 
 from utils import device_jit
-from constants import DENOMINATOR_EPSILON, EPSILON, ZERO, ONE, TWO
+from constants import DENOMINATOR_EPSILON, EPSILON, ZERO, ONE, TWO, PI
 from utils.vec_utils import vec3, add, dot, mul, mul_vec, normalize, sub
 
 @device_jit
@@ -20,7 +20,7 @@ def phong_specular(n, v, d_l, r_s, h, i_l):
     r_l = normalize(sub(temp, d_l))
 
     v_dot_r = max(ZERO, dot(v, r_l))
-    spec_factor = float32(math.pow(v_dot_r, h))
+    spec_factor = math.pow(v_dot_r, h)
     specular_color = mul_vec(r_s, i_l)
     return mul(specular_color, spec_factor)
 
@@ -67,7 +67,7 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
     k_d = sub(WHITE, f)
 
     # lambertian diffuse
-    diffuse = mul(r_d, ONE / float32(math.pi))
+    diffuse = mul(r_d, ONE / PI)
     diffuse_part = mul_vec(k_d, diffuse)
 
     # combine (light intensity and angle)
@@ -84,7 +84,7 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
 @device_jit
 def get_roughness_from_ns(ns):
     """map obj shininess to pbr roughness"""
-    return float32(math.sqrt(TWO / (ns + TWO)))
+    return math.sqrt(TWO / (ns + TWO))
 
 
 @device_jit
@@ -110,9 +110,9 @@ def distribution_ggx(n_dot_h, roughness):
 
     # denominator
     denom = n_dot_h2 * (a2 - ONE) + ONE
-    denom = float32(math.pi) * denom * denom
+    denom = PI * denom * denom
 
-    return a2 / max(denom, float32(1e-7))
+    return a2 / max(denom, DENOMINATOR_EPSILON)
 
 
 @device_jit

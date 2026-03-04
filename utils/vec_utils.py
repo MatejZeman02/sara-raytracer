@@ -5,6 +5,7 @@ from numpy import float32
 
 from utils import device_jit
 
+# constants for float32 precision
 ONE = float32(1.0)
 ZERO = float32(0.0)
 
@@ -12,31 +13,40 @@ ZERO = float32(0.0)
 @device_jit
 def vec3(x, y, z):
     """Create a 3D vector."""
-    return (float32(x), float32(y), float32(z))
+    return (x, y, z)
 
 
 @device_jit
 def add(a, b):
     """+ operator for 3D vectors."""
-    return (float32(a[0] + b[0]), float32(a[1] + b[1]), float32(a[2] + b[2]))
+    a = vec3(a[0], a[1], a[2])
+    b = vec3(b[0], b[1], b[2])
+    return (a[0] + b[0]), (a[1] + b[1]), (a[2] + b[2])
 
 
 @device_jit
 def sub(a, b):
     """- operator for 3D vectors."""
-    return (float32(a[0] - b[0]), float32(a[1] - b[1]), float32(a[2] - b[2]))
+    a = vec3(a[0], a[1], a[2])
+    b = vec3(b[0], b[1], b[2])
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
 @device_jit
 def mul(a, s):
     """Scalar multiplication for 3D vectors."""
-    return (float32(a[0] * s), float32(a[1] * s), float32(a[2] * s))
+    a = vec3(a[0], a[1], a[2])
+    return (a[0] * s, a[1] * s, a[2] * s)
 
 
 @device_jit
 def mul_vec(a, b):
     """Element-wise multiplication of two vectors."""
-    return (float32(a[0] * b[0]), float32(a[1] * b[1]), float32(a[2] * b[2]))
+    return (
+        a[0] * b[0],
+        a[1] * b[1],
+        a[2] * b[2],
+    )
 
 
 # @device_jit
@@ -45,22 +55,22 @@ def mul_vec(a, b):
 #     return float32((a[0] / s, a[1] / s, a[2] / s))
 
 
-@device_jit
-def div_vec(a, b):
-    """Element-wise division of two vectors."""
-    return (float32(a[0] / b[0]), float32(a[1] / b[1]), float32(a[2] / b[2]))
+# @device_jit
+# def div_vec(a, b):
+#     """Element-wise division of two vectors."""
+#     return (float32(a[0] / b[0]), float32(a[1] / b[1]), float32(a[2] / b[2]))
 
 
 @device_jit
 def length(a):
     """Euclidean length of a 3D vector."""
-    return float32(math.sqrt(dot(a, a)))
+    return math.sqrt(dot(a, a))
 
 
 @device_jit
 def dot(a, b):
     """Dot product for 3D vectors."""
-    return float32(a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
 @device_jit
@@ -76,9 +86,9 @@ def normalize(a):
 def cross(a, b):
     """Cross product for 3D vectors."""
     return (
-        float32(a[1] * b[2] - a[2] * b[1]),
-        float32(a[2] * b[0] - a[0] * b[2]),
-        float32(a[0] * b[1] - a[1] * b[0]),
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
     )
 
 
