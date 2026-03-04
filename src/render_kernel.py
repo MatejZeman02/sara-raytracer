@@ -5,7 +5,15 @@ import numpy as np
 from numba import cuda, njit
 
 from settings import DEVICE, MAX_BOUNCES
-from constants import EPSILON, STACK_SIZE, ZERO, ONE, HALF
+from constants import (
+    BARYCENTRIC_EPSILON,
+    DENOMINATOR_EPSILON,
+    EPSILON,
+    STACK_SIZE,
+    ZERO,
+    ONE,
+    HALF,
+)
 
 from utils import device_jit
 from utils.vec_utils import (
@@ -184,9 +192,9 @@ def is_in_shadow(
 @device_jit
 def compute_inv_dir(dir_vec):
     """optimalization to divide only once per ray"""
-    inv_x = ONE / dir_vec[0] if dir_vec[0] != ZERO else np.float32(1e15)
-    inv_y = ONE / dir_vec[1] if dir_vec[1] != ZERO else np.float32(1e15)
-    inv_z = ONE / dir_vec[2] if dir_vec[2] != ZERO else np.float32(1e15)
+    inv_x = ONE / (dir_vec[0] + DENOMINATOR_EPSILON)
+    inv_y = ONE / (dir_vec[1] + DENOMINATOR_EPSILON)
+    inv_z = ONE / (dir_vec[2] + DENOMINATOR_EPSILON)
     return vec3(inv_x, inv_y, inv_z)
 
 
@@ -257,7 +265,7 @@ def compute_surface_normal(triangles, tri_normals, hit_idx, ray_dir, hit_u, hit_
     # compute w barycentric weight
     w = ONE - hit_u - hit_v
     # verify coordinate sanity
-    assert w >= -EPSILON and w <= ONE + EPSILON
+    assert w >= -BARYCENTRIC_EPSILON and w <= ONE + BARYCENTRIC_EPSILON
 
     # interpolate normal using weights
     interp_x = w * na[0] + hit_u * nb[0] + hit_v * nc[0]
@@ -351,7 +359,7 @@ def write_color_to_fb(cr, cg, cb, fb, x, y):
 @device_jit
 def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
     """compute refraction ray direction and origin"""
-    rel_ior = ior if is_backface else (ONE / ior if ior != ZERO else ONE)
+    rel_ior = ior if is_backface else (ONE / (ior + DENOMINATOR_EPSILON))
     cos_i = dot(ray_dir, n)
     k = ONE - (rel_ior * rel_ior) * (ONE - (cos_i * cos_i))
 

@@ -3,6 +3,9 @@
 from numpy import float32
 
 EPSILON = float32(1e-4)  # dynamic to size of the scene
+BARYCENTRIC_EPSILON = float32(1e-7)  # acounts with float32 precision error
+DENOMINATOR_EPSILON = float32(1e-10)  # division by zero and its check statements
+
 BIG_EPSILON = float32(1e-2)
 INFINITY_VEC = (float32(-1.0), float32(0.0), float32(0.0))
 BLOCK_THREADS = 16

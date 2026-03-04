@@ -4,7 +4,7 @@ import math
 from numpy import float32
 
 from utils import device_jit
-from constants import EPSILON, ZERO, ONE
+from constants import DENOMINATOR_EPSILON, EPSILON, ZERO, ONE, TWO
 from utils.vec_utils import vec3, add, dot, mul, mul_vec, normalize, sub
 
 @device_jit
@@ -16,7 +16,7 @@ def phong_diffuse(n, d_l, r_d, i_l):
 
 @device_jit
 def phong_specular(n, v, d_l, r_s, h, i_l):
-    temp = mul(n, float32(2.0) * dot(n, d_l))
+    temp = mul(n, TWO * dot(n, d_l))
     r_l = normalize(sub(temp, d_l))
 
     v_dot_r = max(ZERO, dot(v, r_l))
@@ -58,7 +58,7 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
     g = geometry_schlick_ggx(n_dot_v, n_dot_l, roughness)
 
     # specular reflection
-    denominator = float32(4.0) * n_dot_v * n_dot_l + EPSILON
+    denominator = float32(4.0) * n_dot_v * n_dot_l + DENOMINATOR_EPSILON
     specular_scalar = (d * g) / denominator
     specular = mul(f, specular_scalar)
 
@@ -84,7 +84,7 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
 @device_jit
 def get_roughness_from_ns(ns):
     """map obj shininess to pbr roughness"""
-    return float32(math.sqrt(float32(2.0) / (ns + float32(2.0))))
+    return float32(math.sqrt(TWO / (ns + TWO)))
 
 
 @device_jit

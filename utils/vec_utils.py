@@ -1,4 +1,4 @@
-"""Math vector utilities for device-agnostic kernels."""
+"""Math vector utilities for device-agnostic kernels. Commented out functions are not currently used."""
 
 import math
 from numpy import float32
@@ -7,6 +7,7 @@ from utils import device_jit
 
 ONE = float32(1.0)
 ZERO = float32(0.0)
+
 
 @device_jit
 def vec3(x, y, z):
@@ -38,10 +39,10 @@ def mul_vec(a, b):
     return (float32(a[0] * b[0]), float32(a[1] * b[1]), float32(a[2] * b[2]))
 
 
-@device_jit
-def div(a, s):
-    """Scalar division for 3D vectors."""
-    return float32((a[0] / s, a[1] / s, a[2] / s))
+# @device_jit
+# def div(a, s):
+#     """Scalar division for 3D vectors."""
+#     return float32((a[0] / s, a[1] / s, a[2] / s))
 
 
 @device_jit
