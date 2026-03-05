@@ -34,7 +34,7 @@ The meassurements assume the data is already on gpu.
 MRays/s rendering on machines on 16 depth:
 | hw  | local  | remote | cpu  | note                |
 | --- | ------ | ------ | ---- | ------------------- |
-| 1   | 446.13 | x.xx   | ?.?? | cook                |
+| 1   | 446.13 | x.xx   | 1.06 | cook                |
 | 2   | 72.90  | x.xx   | 0.67 | SAH BVH + secondary |
 | 3   | x.xx   | x.xx   | x.xx |                     |
 | 4   | x.xx   | x.xx   | x.xx |                     |
