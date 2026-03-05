@@ -18,7 +18,7 @@ The output will be in the `src/output/` folder as `output.ppm/png`.
 
 I use the c++ header tiny-obj-loader library together with python bindings. I parsed the triangles there too. So user on different machine needs to recompile it for there is older version of python on the cluster or your device.
 
-Use `./rebuild_tinyobjloader.sh python3.<version>` for compilation from the root directory. Note: For each homework branch may be different version of the library. So recompiling when switching branches is adviced. You can specify your version of python to compile for, but default is `python3.14`.
+Use `./build_tinyobjloader.sh.sh python3.<version>` for compilation from the root directory. Note: For each homework branch may be different version of the library. So recompiling when switching branches is adviced. You can specify your version of python to compile for, but default is `python3.14`.
 
 ## Render Times
 
@@ -30,15 +30,59 @@ The meassurements assume the data is already on gpu.
 > - 5760**2 on remote A100 on cluster.
 
 
-## Homework render times:
-MRays/s rendering on machines on 16 depth:
-| hw  | local  | remote | cpu  | note                |
-| --- | ------ | ------ | ---- | ------------------- |
-| 1   | 446.13 | x.xx   | 1.06 | cook                |
-| 2   | 72.90  | x.xx   | 0.67 | SAH BVH + secondary |
-| 3   | x.xx   | x.xx   | x.xx |                     |
-| 4   | x.xx   | x.xx   | x.xx |                     |
-| 5   | x.xx   | x.xx   | x.xx |                     |
+## Performance Log:
+Saved bash rendering on cpu/gpu with/without BVH:
+
+```bash
+(raytracer) bubakulus@fedora:~/work/prog/PG1/zemanm40$ ./run_local.sh 
+Runs on device: CPU
+[timing] init python         :    1.36 s
+[timing] jit compile run     :    6.57 s
+[timing] render (no ds)      :  240.75 s
+[perf] performance: 0.00 MRays/s
+[perf] primary node tests: 0.0 (O(logN) is ~12.4)
+[perf] primary triangle tests: 5492.0
+[perf] max refraction/reflection depth reached: 1
+
+[timing] render (with ds)    :    3.18 s (0.3 FPS)
+[perf] performance: 10.44 MRays/s
+[perf] primary node tests: 25.7 (O(logN) is ~12.4)
+[perf] primary triangle tests: 4.7
+[perf] max refraction/reflection depth reached: 1
+Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.jpg
+
+[timing] total (+-)          :  253.42 s
+(raytracer) bubakulus@fedora:~/work/prog/PG1/zemanm40$ ./run_local.sh 
+Runs on device: GPU
+[timing] init python         :    1.36 s
+[timing] init cuda + alloc   :    0.30 s
+[timing] jit compile run     :    2.50 s
+[timing] render (no ds)      :    0.31 s
+[perf] performance: 0.00 MRays/s
+[perf] primary node tests: 0.0 (O(logN) is ~12.4)
+[perf] primary triangle tests: 5492.0
+[perf] max refraction/reflection depth reached: 1
+
+[timing] render (with ds)    :    0.00 s (263.5 FPS)
+[perf] performance: 546.40 MRays/s
+[perf] primary node tests: 25.6 (O(logN) is ~12.4)
+[perf] primary triangle tests: 4.7
+[perf] max refraction/reflection depth reached: 1
+Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.jpg
+
+[timing] total (+-)          :    4.79 s
+```
+
+
+<!-- ## Homework render times:
+MRays/s rendering on machines on 16 depth (hw01 is in 1 only):
+| hw  | local | remote | cpu  | note                |
+| --- | ----- | ------ | ---- | ------------------- |
+| 1   | 0.00  | x.xx   | 0.00 | cook (no BVH)       |
+| 2   | 72.90 | x.xx   | 1.44 | SAH BVH + secondary |
+| 3   | x.xx  | x.xx   | x.xx |                     |
+| 4   | x.xx  | x.xx   | x.xx |                     |
+| 5   | x.xx  | x.xx   | x.xx |                     | -->
 
 ## Homework renders
 
@@ -54,6 +98,34 @@ MRays/s rendering on machines on 16 depth:
 
 <img src="src/output/hw05/output.png" width="25%"/>
 
+
+## Launching debug in VS Code
+
+Use this `.vscode/launch.json` setup:
+
+```json
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "debug raytracer",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.main",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                // added workspaceRoot/src, for absolute imports
+                "PYTHONPATH": "${workspaceFolder}:${workspaceFolder}/src"
+            }
+        }
+    ]
+}
+```
+
+
+
+***
 
 ## Differences with C++ CUDA (in czech)
 

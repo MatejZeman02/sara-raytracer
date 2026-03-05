@@ -59,20 +59,17 @@ class KernelManager:
 
     def precompile_run(self, local_vars):
         """runs kernel to trigger jit compilation."""
+        if DEVICE == "cpu":
+            # direct call triggers njit compilation
+            # change resolution to 1x1
+            local_vars["width"] = 1
+            local_vars["height"] = 1
+
         args = self._resolve_args(local_vars)
         assert len(args) == len(self.arg_names), "argument count mismatch during warmup"
 
         if DEVICE == "cpu":
-            # direct call triggers njit compilation
-            # change resolution to 1x1 for faster warmup
-            original_width = local_vars.get("width", 1)
-            original_height = local_vars.get("height", 1)
-            local_vars["width"] = 1
-            local_vars["height"] = 1
             self.kernel(*args)
-            # restore original dimensions
-            local_vars["width"] = original_width
-            local_vars["height"] = original_height
         else:
             # execute single thread with real memory references
             self.kernel[(1, 1), (1, 1)](*args)

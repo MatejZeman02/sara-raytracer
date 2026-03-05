@@ -15,7 +15,7 @@ def device_jit(*args, **kwargs):
             kwargs["device"] = "always" if is_device else "never"
 
         kwargs.setdefault("fastmath", True)
-        kwargs.setdefault("cache", True)  # not sure if it does anything
+        # kwargs.setdefault("cache", True)  # not sure if it does anything
 
         return njit(*args, **kwargs)
     else:

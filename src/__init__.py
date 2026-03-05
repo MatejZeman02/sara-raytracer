@@ -7,7 +7,6 @@ import time
 LOAD_PYTHON_TIME = 1.0
 t_start = time.perf_counter() - LOAD_PYTHON_TIME
 
-from random import random
 import math
 import os
 import sys
@@ -25,7 +24,7 @@ from .settings import (
     GPU_DIMENSION,
     DEVICE,
     RENDER_NON_BVH_STATS,
-    USE_CACHE,
+    USE_BVH_CACHE,
 )
 from .setup_vectors import build_setup_vectors
 
@@ -46,18 +45,17 @@ from utils.ppm import save_ppm
 def _phase_time(label: str, t0: float, fps: bool = False) -> float:
     """Print elapsed time from t0 and return new timestamp."""
     t1 = time.perf_counter()
-    if fps:
-        print(f"[timing] {label:<20}: {t1 - t0:7.2f} s ({1.0/(t1 - t0):.1f} FPS)")
-    else:
-        print(f"[timing] {label:<20}: {t1 - t0:7.2f} s")
+    print(
+        f"[timing] {label:<20}: {t1 - t0:7.2f} s"
+        + (f" ({1.0/(t1 - t0):.1f} FPS)" if fps else "")
+    )
     return t1
 
 
 def count_f64_in_ptx():
-    # for float 64 hunting: (and line debug info in the kernel enabled)
-    # print the compiled assembly
+    """for float 64 hunting: (and line debug info in the kernel enabled)"""
     ptx_code = render_kernel.inspect_asm()
-    for signature, ptx in ptx_code.items():
+    for _signature, ptx in ptx_code.items():
         # count double precision instructions
         f64_count = ptx.count(".f64")
         if f64_count > 0:
@@ -70,7 +68,7 @@ def count_f64_in_ptx():
 
 def load_or_build_scene(json_file, cache_file, t):
     """load scene from cache or build bvh from scratch."""
-    if os.path.exists(cache_file) and USE_CACHE:
+    if os.path.exists(cache_file) and USE_BVH_CACHE:
         cache = np.load(cache_file)
         bvh_nodes = cache["bvh_nodes"]
         triangles = cache["triangles"]
@@ -138,7 +136,7 @@ def print_statistics(stats, render_time, width, height, total_triangles):
     print(
         f"[perf] primary node tests: {avg_primary_node:.1f} (O(logN) is ~{optimal_log_nodes:.1f})"
     )
-    print(f"[perf] primary tri tests: {avg_primary_tri:.1f}")
+    print(f"[perf] primary triangles tests: {avg_primary_tri:.1f}")
     print(f"[perf] max refraction/reflection depth reached: {max_bounces_hit}")
 
 
@@ -149,8 +147,8 @@ def save_image(fb, output_path):
 
     save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
-    img.save(output_path + ".png")
-    print(f"Click to see the result onto: {output_path}.png")
+    img.save(output_path + ".jpg")
+    print(f"Click to see the result onto: {output_path}.jpg")
 
 
 def main():
@@ -181,7 +179,8 @@ def main():
         light_data, cam_data, width, height
     )
     fb, out_stats = allocate_buffers(width, height)
-    t = _phase_time("init alloc", t)
+    if DEVICE == "gpu":
+        t = _phase_time("init cuda + alloc", t)
 
     manager = KernelManager(render_kernel)
     use_bvh = False
