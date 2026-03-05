@@ -52,7 +52,7 @@ def render_pixel(
     thr_r, thr_g, thr_b = f1, f1, f1
 
     for bounce in range(MAX_BOUNCES):
-        is_primary = not bounce
+        is_primary = not bounce  # ray is primary, if it's bounce 0
         closest_t, hit_idx, hit_u, hit_v, tri_tests, node_tests = get_closest_hit(
             triangles,
             bvh_nodes,
@@ -65,12 +65,16 @@ def render_pixel(
         )
 
         # accumulate statistics
-        if bounce == 0:
+        # track how deep the ray goes
+        out_stats[y, x, 4] = bounce + 1
+
+        if is_primary:
             out_stats[y, x, 0] = tri_tests
             out_stats[y, x, 1] = node_tests
-        else:
-            out_stats[y, x, 0] += tri_tests
-            out_stats[y, x, 1] += node_tests
+
+        # total stats (primary + shadows + bounces)
+        out_stats[y, x, 2] += tri_tests
+        out_stats[y, x, 3] += node_tests
 
         if hit_idx == -1:
             mc = get_miss_color()

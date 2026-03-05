@@ -1,6 +1,6 @@
 """Constants for project."""
 
-DEVICE = "gpu"  # "cpu" or "gpu"
+DEVICE = "cpu"  # "cpu" or "gpu"
 
 # for CPU python run:
 CPU_DIMENSION = 1440

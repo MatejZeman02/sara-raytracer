@@ -1,9 +1,10 @@
 from settings import DEVICE  # type: ignore
+from numba import njit
+from numba import cuda
 
 
 def device_jit(*args, **kwargs):
     if DEVICE == "cpu":
-        from numba import njit
 
         # translate boolean inline/device to string for cpu njit
         if "inline" in kwargs:
@@ -18,7 +19,6 @@ def device_jit(*args, **kwargs):
 
         return njit(*args, **kwargs)
     else:
-        from numba import cuda
 
         # kwargs.setdefault("lineinfo", True) # debug info for gpu kernels
         kwargs.setdefault("device", True)

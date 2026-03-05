@@ -17,7 +17,7 @@ def compute_inv_dir(dir_vec):
 @device_jit
 def compute_primary_ray(p00, qw, qh, origin, x, y):
     """primary ray generation"""
-    # conversion needed because of the multiplication
+    # float conversion needed because of the multiplication
     xf = float32(x)
     yf = float32(y)
     dir_x = p00[0] + xf * qw[0] - yf * qh[0]

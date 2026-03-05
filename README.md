@@ -1,6 +1,6 @@
 # CTU FIT NI-PG1 Matej Zeman (zemanm40) 2026
 
-My Sara raytracer in numba-cuda.
+My Sara raytracer in numba-cuda. Semestral work in PG1 taught by Ing. Radek Richtr Ph.D on CTU FIT in Prague.
 
 ## Structure/Installation
 
@@ -31,28 +31,28 @@ The meassurements assume the data is already on gpu.
 
 
 ## Homework render times:
-Pure rendering on both machines:
-| hw  | local  | remote | note    |
-| --- | ------ | ------ | ------- |
-| 1   | 2.26 s | 1.18 s | cook    |
-| 2   | x.xx s | x.xx s | SAH BVH |
-| 3   | x.xx s | x.xx s |         |
-| 4   | x.xx s | x.xx s |         |
-| 5   | x.xx s | x.xx s |         |
+MRays/s rendering on machines on 16 depth:
+| hw  | local  | remote | cpu  | note                |
+| --- | ------ | ------ | ---- | ------------------- |
+| 1   | 446.13 | x.xx   | ?.?? | cook                |
+| 2   | 72.90  | x.xx   | 0.67 | SAH BVH + secondary |
+| 3   | x.xx   | x.xx   | x.xx |                     |
+| 4   | x.xx   | x.xx   | x.xx |                     |
+| 5   | x.xx   | x.xx   | x.xx |                     |
 
 ## Homework renders
 
-<img src="hw01/output/output.png" width="25%"/>
-<img src="hw02/output/output.png" width="25%"/>
+<img src="src/output/hw01/output.png" width="25%"/>
+<img src="src/output/hw02/output.png" width="25%"/>
 
 ***
 
-<img src="hw03/output/output.png" width="25%"/>
-<img src="hw04/output/output.png" width="25%"/>
+<img src="src/output/hw03/output.png" width="25%"/>
+<img src="src/output/hw04/output.png" width="25%"/>
 
 ***
 
-<img src="hw05/output/output.png" width="25%"/>
+<img src="src/output/hw05/output.png" width="25%"/>
 
 
 ## Differences with C++ CUDA (in czech)

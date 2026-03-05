@@ -7,6 +7,7 @@ import time
 LOAD_PYTHON_TIME = 1.0
 t_start = time.perf_counter() - LOAD_PYTHON_TIME
 
+from random import random
 import math
 import os
 import sys
@@ -52,19 +53,23 @@ def _phase_time(label: str, t0: float, fps: bool = False) -> float:
     return t1
 
 
-def main():
-    """Run the render pipeline."""
-    print(f"Runs on device: {DEVICE.upper()}")
-    t = _phase_time("init python", t_start)
-    width, height = int(GPU_DIMENSION), int(GPU_DIMENSION)
-    if DEVICE == "cpu":
-        width, height = int(CPU_DIMENSION), int(CPU_DIMENSION)
+def count_f64_in_ptx():
+    # for float 64 hunting: (and line debug info in the kernel enabled)
+    # print the compiled assembly
+    ptx_code = render_kernel.inspect_asm()
+    for signature, ptx in ptx_code.items():
+        # count double precision instructions
+        f64_count = ptx.count(".f64")
+        if f64_count > 0:
+            print(f"FP64 instructions: {f64_count}")
 
-    # json_file = os.path.join(project_root, "box-sphere-original", "setup.json")
-    json_file = os.path.join(project_root, "box-advanced", "setup.json")
-    cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
-    cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
+        # save to file to search for "cvt.f64.f32" (conversion)
+        with open("kernel.ptx", "w") as f:
+            f.write(ptx)
 
+
+def load_or_build_scene(json_file, cache_file, t):
+    """load scene from cache or build bvh from scratch."""
     if os.path.exists(cache_file) and USE_CACHE:
         cache = np.load(cache_file)
         bvh_nodes = cache["bvh_nodes"]
@@ -92,20 +97,90 @@ def main():
             materials=materials,
         )
         t = _phase_time("bvh build", t)
+    return (
+        triangles,
+        tri_normals,
+        mat_indices,
+        materials,
+        light_data,
+        cam_data,
+        bvh_nodes,
+        t,
+    )
+
+
+def allocate_buffers(width, height):
+    """allocate framebuffer and statistics arrays."""
+    assert width > 0 and height > 0
+    if DEVICE == "gpu":
+        fb = cuda.device_array((height, width, 3), dtype=np.uint8)
+        out_stats = cuda.device_array((height, width, 5), dtype=np.int32)
+    else:
+        fb = np.zeros((height, width, 3), dtype=np.uint8)
+        out_stats = np.zeros((height, width, 5), dtype=np.int32)
+
+    return fb, out_stats
+
+
+def print_statistics(stats, render_time, width, height, total_triangles):
+    """calculate and print rendering statistics."""
+    assert render_time > 0.0
+
+    total_pixels = width * height
+    mrays_per_sec = (total_pixels / render_time) / 1_000_000
+
+    avg_primary_tri = np.mean(stats[:, :, 0])
+    avg_primary_node = np.mean(stats[:, :, 1])
+    optimal_log_nodes = math.log2(total_triangles)
+    max_bounces_hit = np.max(stats[:, :, 4])
+
+    print(f"[perf] performance: {mrays_per_sec:.2f} MRays/s")
+    print(
+        f"[perf] primary node tests: {avg_primary_node:.1f} (O(logN) is ~{optimal_log_nodes:.1f})"
+    )
+    print(f"[perf] primary tri tests: {avg_primary_tri:.1f}")
+    print(f"[perf] max refraction/reflection depth reached: {max_bounces_hit}")
+
+
+def save_image(fb, output_path):
+    """copy framebuffer to host and save to disk."""
+    assert fb is not None
+    host_fb = fb.copy_to_host() if DEVICE == "gpu" else fb
+
+    save_ppm(output_path + ".ppm", host_fb)
+    img = Image.fromarray(host_fb)
+    img.save(output_path + ".png")
+    print(f"Click to see the result onto: {output_path}.png")
+
+
+def main():
+    """run the render pipeline."""
+    print(f"Runs on device: {DEVICE.upper()}")
+    t = _phase_time("init python", t_start)
+
+    width = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
+    height = width
+    assert width > 0
+
+    json_file = os.path.join(project_root, "box-advanced", "setup.json")
+    cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
+    cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
+
+    (
+        triangles,
+        tri_normals,
+        mat_indices,
+        materials,
+        light_data,
+        cam_data,
+        bvh_nodes,
+        t,
+    ) = load_or_build_scene(json_file, cache_file, t)
 
     origin, p00, qw, qh, light_pos, light_color = build_setup_vectors(
         light_data, cam_data, width, height
     )
-
-    # allocate framebuffer and statistics arrays
-    if DEVICE == "gpu":
-        fb = cuda.device_array((height, width, 3), dtype=np.uint8)
-        out_stats = cuda.device_array((height, width, 2), dtype=np.int32)
-    else:
-        fb = np.zeros((height, width, 3), dtype=np.uint8)
-        out_stats = np.zeros((height, width, 2), dtype=np.int32)
-    assert out_stats.shape == (height, width, 2)
-
+    fb, out_stats = allocate_buffers(width, height)
     t = _phase_time("init alloc", t)
 
     manager = KernelManager(render_kernel)
@@ -121,66 +196,33 @@ def main():
         t_brute = manager.run(grid, threads, locals())
         t = _phase_time("render (no ds)", t_brute)
 
-        if DEVICE == "gpu":
-            stats_brute = out_stats.copy_to_host()
-        else:
-            stats_brute = out_stats
+        stats_brute = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
         avg_tris_brute = np.mean(stats_brute[:, :, 0])
-        print(f"\t- avg triangle tests per ray (no ds): {avg_tris_brute:.0f}")
-        if DEVICE == "gpu":
-            out_stats = cuda.device_array((height, width, 2), dtype=np.int32)
-        else:
-            out_stats = np.zeros((height, width, 2), dtype=np.int32)
+        print_statistics(stats_brute, t, width, height, len(triangles))
+        print()
+
+        # reallocate buffers for the actual run
+        fb, out_stats = allocate_buffers(width, height)
 
     use_bvh = True
     if DEVICE == "gpu":
         cuda.profile_start()
-    t_bvh = manager.run(grid, threads, locals())
+    t_bvh_start = manager.run(grid, threads, locals())
     if DEVICE == "gpu":
         cuda.profile_stop()
-    _phase_time("render (with ds)", t_bvh, fps=True)
 
-    if DEVICE == "gpu":
-        stats_bvh = out_stats.copy_to_host()
-    else:
-        stats_bvh = out_stats
-    avg_tris_bvh = np.mean(stats_bvh[:, :, 0])
-    avg_nodes_bvh = np.mean(stats_bvh[:, :, 1])
+    t_bvh_end = _phase_time("render (with ds)", t_bvh_start, fps=True)
+    render_time = t_bvh_end - t_bvh_start
 
-    # print(
-    #     f"\t- normal BVH with avg O(log(n)) * 2 ~ {(np.ceil(np.log2(len(triangles))) * 2):.0f}"
-    # )
-    print(f"\t- avg bvh node tests per ray (with ds): {avg_nodes_bvh:.0f}")
-    print(f"\t- avg triangle tests per ray (with ds): {avg_tris_bvh:.0f}")
-
-    if DEVICE == "gpu":
-        host_fb = fb.copy_to_host()
-    else:
-        host_fb = fb
+    stats = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
+    print_statistics(stats, render_time, width, height, len(triangles))
 
     output_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "output", "output"
     )
-    save_ppm(output_path + ".ppm", host_fb)
-    img = Image.fromarray(host_fb)
-    img.save(output_path + ".png")
-    _phase_time("save imgs", t)
+    save_image(fb, output_path)
 
-    print(f"\n[timing] {'total':<20}: {time.perf_counter() - t_start:7.2f} s")
-    print("Click to see the result onto: src/output/output.png")
-
-    # for float 64 hunting: (and line debug info in the kernel enabled)
-    # # print the compiled assembly
-    # ptx_code = render_kernel.inspect_asm()
-    # for signature, ptx in ptx_code.items():
-    #     # count double precision instructions
-    #     f64_count = ptx.count(".f64")
-    #     if f64_count > 0:
-    #         print(f"FP64 instructions: {f64_count}")
-
-    #     # save to file to search for "cvt.f64.f32" (conversion)
-    #     with open("kernel.ptx", "w") as f:
-    #         f.write(ptx)
+    print(f"\n[timing] {'total (+-)':<20}: {time.perf_counter() - t_start:7.2f} s")
 
 
 # expose 'main' as the only public symbol of the package
