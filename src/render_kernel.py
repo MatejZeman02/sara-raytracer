@@ -20,7 +20,7 @@ from materials import get_emissive_color, compute_shadowed, compute_lit_color
 from framebuffer import get_miss_color, write_color_to_fb
 
 
-@device_jit()
+@device_jit
 def render_pixel(
     triangles,
     tri_normals,
@@ -36,8 +36,6 @@ def render_pixel(
     origin,
     fb,
     out_stats,
-    width,
-    height,
     x,
     y,
     stack,
@@ -54,8 +52,16 @@ def render_pixel(
     thr_r, thr_g, thr_b = f1, f1, f1
 
     for bounce in range(MAX_BOUNCES):
+        is_primary = not bounce
         closest_t, hit_idx, hit_u, hit_v, tri_tests, node_tests = get_closest_hit(
-            triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, stack
+            triangles,
+            bvh_nodes,
+            use_bvh,
+            ray_origin,
+            ray_dir,
+            inv_rd,
+            stack,
+            is_primary,
         )
 
         # accumulate statistics
@@ -212,16 +218,14 @@ if DEVICE == "cpu":
                     origin,
                     fb,
                     out_stats,
-                    width,
-                    height,
                     x,
                     y,
                     stack,
                 )
 
-else:
+elif DEVICE == "gpu":
     # CUDA GPU:
-    # @cuda.jit(fastmath=True, lineinfo=True)
+    # @cuda.jit(fastmath=True, lineinfo=True) # info in compiled code
     @cuda.jit(fastmath=True)
     def render_kernel(
         triangles,
@@ -262,8 +266,6 @@ else:
             origin,
             fb,
             out_stats,
-            width,
-            height,
             x,
             y,
             stack,

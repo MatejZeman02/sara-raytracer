@@ -8,7 +8,9 @@ from constants import ZERO, EPSILON, STACK_SIZE
 
 
 @device_jit
-def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, stack):
+def get_closest_hit(
+    triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, stack, is_primary
+):
     """traverse scene and return closest intersection data including barycentric coords"""
     closest_t = float32(1e20)
     hit_idx = -1
@@ -50,7 +52,9 @@ def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, 
                     for i in range(start, start + count):
                         tri_tests += 1
                         a, b, c = get_tri_verts(triangles, i)
-                        t, u, v = intersect_triangle(ray_origin, ray_dir, a, b, c)
+                        t, u, v = intersect_triangle(
+                            ray_origin, ray_dir, a, b, c, is_primary
+                        )
                         if EPSILON < t < closest_t:
                             closest_t = t
                             hit_idx = i
@@ -68,7 +72,9 @@ def get_closest_hit(triangles, bvh_nodes, use_bvh, ray_origin, ray_dir, inv_rd, 
         for i in range(triangles.shape[0]):
             tri_tests += 1
             a, b, c = get_tri_verts(triangles, i)
-            t, u, v = intersect_triangle(ray_origin, ray_dir, a, b, c)
+            t, u, v = intersect_triangle(
+                ray_origin, ray_dir, a, b, c, is_primary
+            )
             if EPSILON < t < closest_t:
                 closest_t = t
                 hit_idx = i
@@ -88,7 +94,7 @@ def is_in_shadow(
     if not use_bvh:
         for i in range(triangles.shape[0]):
             ta, tb, tc = get_tri_verts(triangles, i)
-            t, _u, _v = intersect_triangle(shadow_ro, d_l, ta, tb, tc)
+            t, _u, _v = intersect_triangle(shadow_ro, d_l, ta, tb, tc, True)
 
             if EPSILON < t < dist_to_light:
                 return True
@@ -122,7 +128,9 @@ def is_in_shadow(
                 count = int(data2)
                 for i in range(start, start + count):
                     ta, tb, tc = get_tri_verts(triangles, i)
-                    t, _u, _v = intersect_triangle(shadow_ro, d_l, ta, tb, tc)
+                    t, _u, _v = intersect_triangle(
+                        shadow_ro, d_l, ta, tb, tc, True
+                    )
 
                     # immediate return on first valid blocking intersection
                     if EPSILON < t < dist_to_light:

@@ -60,6 +60,7 @@ def main():
     if DEVICE == "cpu":
         width, height = int(CPU_DIMENSION), int(CPU_DIMENSION)
 
+    # json_file = os.path.join(project_root, "box-sphere-original", "setup.json")
     json_file = os.path.join(project_root, "box-advanced", "setup.json")
     cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
     cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
@@ -166,6 +167,7 @@ def main():
     _phase_time("save imgs", t)
 
     print(f"\n[timing] {'total':<20}: {time.perf_counter() - t_start:7.2f} s")
+    print("Click to see the result onto: src/output/output.png")
 
     # for float 64 hunting: (and line debug info in the kernel enabled)
     # # print the compiled assembly

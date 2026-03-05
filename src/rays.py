@@ -26,15 +26,18 @@ def compute_primary_ray(p00, qw, qh, origin, x, y):
 
     ray_dir = normalize(vec3(dir_x, dir_y, dir_z))
     ray_origin = vec3(origin[0], origin[1], origin[2])
-    inv_rd = compute_inv_dir(ray_dir)
+    inv_rd = compute_inv_dir(ray_dir) # dir^-1
     return ray_origin, ray_dir, inv_rd
 
 
 @device_jit
 def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
     """compute refraction ray direction and origin"""
+    # relative index of refraction depends on if ray is entering or exiting
     rel_ior = ior if is_backface else (ONE / (ior + DENOMINATOR_EPSILON))
+    # incidence angle
     cos_i = dot(ray_dir, n)
+    # Snell's law discriminant 'k'
     k = ONE - (rel_ior * rel_ior) * (ONE - (cos_i * cos_i))
 
     if k < ZERO:
@@ -49,7 +52,7 @@ def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
                 mul(n, rel_ior * (-cos_i) - math.sqrt(k)),
             )
         )
-        # step through the opposing geometry wall
+        # shift forwards
         new_origin = sub(p, mul(geom_n, EPSILON))
     return new_dir, new_origin
 
@@ -57,7 +60,9 @@ def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
 @device_jit
 def compute_reflection(ray_dir, n, geom_n, p):
     """compute reflection ray direction and origin"""
+    # incidence angle
     cos_i = dot(ray_dir, n)
     new_dir = sub(ray_dir, mul(n, TWO * cos_i))
+    # shift backwards
     new_origin = add(p, mul(geom_n, EPSILON))
     return new_dir, new_origin

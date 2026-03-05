@@ -4,8 +4,8 @@ import math
 
 from utils import device_jit
 from utils.vec_utils import vec3, mul_vec, cross, dot, sub
-from settings import CULLBACK
 from constants import EPSILON, INFINITY_VEC, ZERO, ONE
+
 
 @device_jit
 def intersect_aabb(ro, inv_rd, bmin, bmax):
@@ -35,14 +35,15 @@ def intersect_aabb(ro, inv_rd, bmin, bmax):
 
 
 @device_jit
-def intersect_triangle(ro, rd, a, b, c):
+def intersect_triangle(ro, rd, a, b, c, cullback):
     """Möller-Trumbore ray-triangle intersection algorithm."""
     e1 = sub(b, a)
     e2 = sub(c, a)
     pvec = cross(rd, e2)
     det = dot(e1, pvec)
 
-    if CULLBACK:
+    # primary rays cull backfaces to get into the scene
+    if cullback:
         if det < EPSILON:
             return INFINITY_VEC
     else:

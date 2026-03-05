@@ -1,7 +1,6 @@
 """Constants for project."""
 
 DEVICE = "gpu"  # "cpu" or "gpu"
-CULLBACK = True
 
 # for CPU python run:
 CPU_DIMENSION = 1440
@@ -14,4 +13,4 @@ GPU_DIMENSION = 1440
 
 RENDER_NON_BVH_STATS = False
 USE_CACHE = True
-MAX_BOUNCES = 160 # more than 160 is overkill, but counting on attenuation
+MAX_BOUNCES = 16 # more than 32 is overkill, but counting on attenuation
