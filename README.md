@@ -1,8 +1,8 @@
-# NI-PG1 Matej Zeman (zemanm40) 2026
+# CTU FIT NI-PG1 Matej Zeman (zemanm40) 2026
 
 My Sara raytracer in numba-cuda.
 
-## Structure/Instllation
+## Structure/Installation
 
 Separate homeworks are in the branches (hw0x). The main source code is inside `src/` folder. It is using my `utils/` module.
 
