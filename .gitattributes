@@ -1,5 +1,0 @@
-# attribs:
-
-# treat all .h files as documentation for tinyobjloader
-*.h linguist-documentation=true
-*.cpp linguist-documentation=true
