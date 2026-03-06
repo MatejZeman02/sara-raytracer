@@ -20,3 +20,15 @@ TWO = float32(2.0)
 UINT8_MAX_F = float32(255.0)
 UINT8_MAX_I = uint8(255)
 PI = float32(math.pi)
+
+# out stats layout:
+# 0: primary tri tests
+PRIMARY_TRI = 0
+# 1: primary node tests
+PRIMARY_NODE = 1
+# 2: primary rays
+PRIMARY_RAY = 2
+# 3: secondary rays (refractions + bounces)
+SECONDARY_RAY = 3
+# 4: shadow rays
+SHADOW_RAY = 4

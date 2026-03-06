@@ -12,7 +12,7 @@ I managed to run it on FIT cluster as well with using standard `.venv/` installe
 If you do not have conda package manager, build your `.venv` form `requirements.txt`.
 
 
-The output will be in the `src/output/` folder as `output.ppm/png`.
+The output will be in the `src/output/` folder as `output.ppm/png/jpg`.
 
 ### TinyObjLoader
 
@@ -20,9 +20,25 @@ I use the c++ header tiny-obj-loader library together with python bindings. I pa
 
 Use `./build_tinyobjloader.sh.sh python3.<version>` for compilation from the root directory. Note: For each homework branch may be different version of the library. So recompiling when switching branches is adviced. You can specify your version of python to compile for, but default is `python3.14`.
 
+
+## Homework renders
+
+<img src="src/output/hw01/output.png" width="25%"/>
+<img src="src/output/hw02/output.jpg" width="25%"/>
+
+***
+
+<img src="src/output/hw03/output.jpg" width="25%"/>
+<img src="src/output/hw04/output.jpg" width="25%"/>
+
+***
+
+<img src="src/output/hw05/output.jpg" width="25%"/>
+
+
 ## Render Times
 
-Testing on my box-advanced with +-5000 triangles.
+Testing on my box-advanced with +-5500 triangles.
 The meassurements assume the data is already on gpu.
 
 > Dimensions per machine:
@@ -34,69 +50,100 @@ The meassurements assume the data is already on gpu.
 Saved bash rendering on cpu/gpu with/without BVH:
 
 ```bash
-(raytracer) bubakulus@fedora:~/work/prog/PG1/zemanm40$ ./run_local.sh 
-Runs on device: CPU
-[timing] init python         :    1.36 s
-[timing] jit compile run     :    6.57 s
-[timing] render (no ds)      :  240.75 s
-[perf] performance: 0.00 MRays/s
-[perf] primary node tests: 0.0 (O(logN) is ~12.4)
-[perf] primary triangle tests: 5492.0
-[perf] max refraction/reflection depth reached: 1
-
-[timing] render (with ds)    :    3.18 s (0.3 FPS)
-[perf] performance: 10.44 MRays/s
-[perf] primary node tests: 25.7 (O(logN) is ~12.4)
-[perf] primary triangle tests: 4.7
-[perf] max refraction/reflection depth reached: 1
-Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.jpg
-
-[timing] total (+-)          :  253.42 s
-(raytracer) bubakulus@fedora:~/work/prog/PG1/zemanm40$ ./run_local.sh 
-Runs on device: GPU
-[timing] init python         :    1.36 s
-[timing] init cuda + alloc   :    0.30 s
-[timing] jit compile run     :    2.50 s
-[timing] render (no ds)      :    0.31 s
-[perf] performance: 0.00 MRays/s
-[perf] primary node tests: 0.0 (O(logN) is ~12.4)
-[perf] primary triangle tests: 5492.0
-[perf] max refraction/reflection depth reached: 1
-
-[timing] render (with ds)    :    0.00 s (263.5 FPS)
-[perf] performance: 546.40 MRays/s
-[perf] primary node tests: 25.6 (O(logN) is ~12.4)
-[perf] primary triangle tests: 4.7
-[perf] max refraction/reflection depth reached: 1
-Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.jpg
-
-[timing] total (+-)          :    4.79 s
+=================================================================
+  STATISTICS (No DS on GPU)
+=================================================================
+Resolution:             1440 x 1440 (2,073,600 pixels)
+Render time:            1.521 s
+Throughput (whole run): 10.03 MRays/s
+-----------------------------------------------------------------
+RAY DISTRIBUTION (Total: 15,256,470)
+  Primary:               13.6%  (2,073,600)
+  Secondary:             41.5%  (6,330,843)
+  Shadow:                44.9%  (6,852,027)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 80,393,959,126)
+  Node/Triangle ratio:  0.0 : 1
+  Avg ops per ray:      5269.5
+  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 12.4)
+-----------------------------------------------------------------
+PER-PIXEL LOAD (min / mean / max)
+  Rays calls:        1 / 7.4 / 32
+  Incidence tests:   5492 / 38770.2 / 175744
+=================================================================
 ```
-
-
-<!-- ## Homework render times:
-MRays/s rendering on machines on 16 depth (hw01 is in 1 only):
-| hw  | local | remote | cpu  | note                |
-| --- | ----- | ------ | ---- | ------------------- |
-| 1   | 0.00  | x.xx   | 0.00 | cook (no BVH)       |
-| 2   | 72.90 | x.xx   | 1.44 | SAH BVH + secondary |
-| 3   | x.xx  | x.xx   | x.xx |                     |
-| 4   | x.xx  | x.xx   | x.xx |                     |
-| 5   | x.xx  | x.xx   | x.xx |                     | -->
-
-## Homework renders
-
-<img src="src/output/hw01/output.png" width="25%"/>
-<img src="src/output/hw02/output.png" width="25%"/>
-
 ***
-
-<img src="src/output/hw03/output.png" width="25%"/>
-<img src="src/output/hw04/output.png" width="25%"/>
-
+```bash
+=================================================================
+  STATISTICS (DS on GPU)
+=================================================================
+Resolution:             1440 x 1440 (2,073,600 pixels)
+Render time:            0.021 s
+Throughput (whole run): 711.83 MRays/s
+-----------------------------------------------------------------
+RAY DISTRIBUTION (Total: 15,256,481)
+  Primary:               13.6%  (2,073,600)
+  Secondary:             41.5%  (6,330,847)
+  Shadow:                44.9%  (6,852,034)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 608,295,264)
+  Node/Triangle ratio:  7.1 : 1
+  Avg ops per ray:      39.9
+  Avg nodes per ray:    34.9 (Ideal O(logN) ~ 12.4)
+-----------------------------------------------------------------
+PER-PIXEL LOAD (min / mean / max)
+  Rays calls:        1 / 7.4 / 32
+  Incidence tests:   1 / 293.4 / 5371
+=================================================================
+```
 ***
-
-<img src="src/output/hw05/output.png" width="25%"/>
+```bash
+=================================================================
+  STATISTICS (No DS on CPU)
+=================================================================
+Resolution:             1440 x 1440 (2,073,600 pixels)
+Render time:            111.293 s
+Throughput (whole run): 0.14 MRays/s
+-----------------------------------------------------------------
+RAY DISTRIBUTION (Total: 15,256,468)
+  Primary:               13.6%  (2,073,600)
+  Secondary:             41.5%  (6,330,831)
+  Shadow:                44.9%  (6,852,037)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 80,393,952,357)
+  Node/Triangle ratio:  0.0 : 1
+  Avg ops per ray:      5269.5
+  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 12.4)
+-----------------------------------------------------------------
+PER-PIXEL LOAD (min / mean / max)
+  Rays calls:        1 / 7.4 / 32
+  Incidence tests:   5492 / 38770.2 / 175744
+=================================================================
+```
+***
+```bash
+=================================================================
+  STATISTICS (DS on CPU)
+=================================================================
+Resolution:             1440 x 1440 (2,073,600 pixels)
+Render time:            1.091 s
+Throughput (whole run): 13.98 MRays/s
+-----------------------------------------------------------------
+RAY DISTRIBUTION (Total: 15,256,462)
+  Primary:               13.6%  (2,073,600)
+  Secondary:             41.5%  (6,330,826)
+  Shadow:                44.9%  (6,852,036)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 608,288,602)
+  Node/Triangle ratio:  7.1 : 1
+  Avg ops per ray:      39.9
+  Avg nodes per ray:    34.9 (Ideal O(logN) ~ 12.4)
+-----------------------------------------------------------------
+PER-PIXEL LOAD (min / mean / max)
+  Rays calls:        1 / 7.4 / 32
+  Incidence tests:   1 / 293.3 / 5373
+=================================================================
+```
 
 
 ## Launching debug in VS Code
@@ -127,9 +174,9 @@ Use this `.vscode/launch.json` setup:
 
 ***
 
-## Differences with C++ CUDA (in czech)
+## Differences with C++ CUDA (in czech from chat)
 
-Shrnutí převodu konceptů z CUDA C++ (`nvcc`) do Numby, ideální pro zkopírování na později.
+Shrnutí převodu konceptů z CUDA C++ (`nvcc`) do Numby:
 
 ### 1. Kompilační flagy a optimalizace (nvcc -> Numba)
 

@@ -110,34 +110,96 @@ def load_or_build_scene(json_file, cache_file, t):
 def allocate_buffers(width, height):
     """allocate framebuffer and statistics arrays."""
     assert width > 0 and height > 0
+    # 0: primary tri tests
+    # 1: primary node tests
+    # 2: primary rays
+    # 3: secondary rays (refractions + bounces)
+    # 4: shadow rays
+    STATS_TUPLE = (height, width, 5)
+    FB_SHAPE = (height, width, 3)  # RGB8 framebuffer
     if DEVICE == "gpu":
-        fb = cuda.device_array((height, width, 3), dtype=np.uint8)
-        out_stats = cuda.device_array((height, width, 5), dtype=np.int32)
+        fb = cuda.device_array(FB_SHAPE, dtype=np.uint8)
+        out_stats = cuda.device_array(STATS_TUPLE, dtype=np.int32)
     else:
-        fb = np.zeros((height, width, 3), dtype=np.uint8)
-        out_stats = np.zeros((height, width, 5), dtype=np.int32)
+        fb = np.zeros(FB_SHAPE, dtype=np.uint8)
+        out_stats = np.zeros(STATS_TUPLE, dtype=np.int32)
 
     return fb, out_stats
 
 
-def print_statistics(stats, render_time, width, height, total_triangles):
-    """calculate and print rendering statistics."""
-    assert render_time > 0.0
+def print_statistics(stats, render_time, total_triangles, is_ds=True):
+    """calculate and print advanced rendering statistics with a focus on readability and ratios."""
+    assert stats.ndim == 3
+    assert stats.shape[2] == 5
+    assert render_time >= 0.0
+    assert total_triangles > 0
 
-    total_pixels = width * height
-    mrays_per_sec = (total_pixels / render_time) / 1_000_000
+    tri_tests = stats[:, :, 0]
+    node_tests = stats[:, :, 1]
+    prim_rays = stats[:, :, 2]
+    sec_rays = stats[:, :, 3]
+    shad_rays = stats[:, :, 4]
 
-    avg_primary_tri = np.mean(stats[:, :, 0])
-    avg_primary_node = np.mean(stats[:, :, 1])
+    # calculate overall sums
+    tot_prim = np.sum(prim_rays)
+    tot_sec = np.sum(sec_rays)
+    tot_shad = np.sum(shad_rays)
+    tot_rays = tot_prim + tot_sec + tot_shad
+
+    tot_tri = np.sum(tri_tests)
+    tot_node = np.sum(node_tests)
+    tot_inc = tot_tri + tot_node
+
+    # calculate performance
+    mrays_sec = (tot_rays / 1e6) / render_time if render_time > 0 else 0
+
+    # calculate ratios and averages
+    pct_prim = (tot_prim / tot_rays * 100) if tot_rays else 0
+    pct_sec = (tot_sec / tot_rays * 100) if tot_rays else 0
+    pct_shad = (tot_shad / tot_rays * 100) if tot_rays else 0
+
+    node_tri_ratio = (tot_node / tot_tri) if tot_tri > 0 else 0
+    tests_per_ray = (tot_inc / tot_rays) if tot_rays > 0 else 0
+    nodes_per_ray = (tot_node / tot_rays) if tot_rays > 0 else 0
+
     optimal_log_nodes = math.log2(total_triangles)
-    max_bounces_hit = np.max(stats[:, :, 4])
 
-    print(f"[perf] performance: {mrays_per_sec:.2f} MRays/s")
+    # calculate per pixel arrays
+    total_rays_per_px = prim_rays + sec_rays + shad_rays
+    total_inc_per_px = tri_tests + node_tests
+    # max rays per pixel
+    # max_rays_pix = np.max(total_rays_per_px)
+
+    width = stats.shape[1]
+    height = stats.shape[0]
+
+    SEP_LEN = 65
+    SEP_EQUAL = "=" * SEP_LEN
+    SEP_DASH = "-" * SEP_LEN
     print(
-        f"[perf] primary node tests: {avg_primary_node:.1f} (O(logN) is ~{optimal_log_nodes:.1f})"
+        f"\n{SEP_EQUAL}\n"
+        f"  STATISTICS ({'DS' if is_ds else 'No DS'} on {DEVICE.upper()})\n"
+        f"{SEP_EQUAL}\n"
+        f"Resolution:             {width} x {height} ({tot_prim:,} pixels)\n"
+        f"Render time:            {render_time:.3f} s\n"
+        f"Throughput (whole run): {mrays_sec:.2f} MRays/s\n"
+        f"{SEP_DASH}\n"
+        f"RAY DISTRIBUTION (Total: {tot_rays:,})\n"
+        f"  Primary:              {pct_prim:5.1f}%  ({tot_prim:,})\n"
+        f"  Secondary:            {pct_sec:5.1f}%  ({tot_sec:,})\n"
+        f"  Shadow:               {pct_shad:5.1f}%  ({tot_shad:,})\n"
+        f"{SEP_DASH}\n"
+        f"BVH EFFICIENCY (Total incidence ops: {tot_inc:,})\n"
+        f"  Node/Triangle ratio:  {node_tri_ratio:.1f} : 1\n"
+        f"  Avg ops per ray:      {tests_per_ray:.1f}\n"
+        f"  Avg nodes per ray:    {nodes_per_ray:.1f} (Ideal O(logN) ~ {optimal_log_nodes:.1f})\n"
+        f"{SEP_DASH}\n"
+        f"PER-PIXEL LOAD (min / mean / max)\n"
+        f"  Rays calls:        {np.min(total_rays_per_px)} / {np.mean(total_rays_per_px):.1f} / {np.max(total_rays_per_px)}\n"
+        # f"max: {max_rays_pix} = 1 primary + {np.floor(max_rays_pix/2):.0f} secondary + {np.ceil(max_rays_pix/2):.0f} shadow r.\n"
+        f"  Incidence tests:   {np.min(total_inc_per_px)} / {np.mean(total_inc_per_px):.1f} / {np.max(total_inc_per_px)}\n"
+        f"{SEP_EQUAL}"
     )
-    print(f"[perf] primary triangles tests: {avg_primary_tri:.1f}")
-    print(f"[perf] max refraction/reflection depth reached: {max_bounces_hit}")
 
 
 def save_image(fb, output_path):
@@ -196,8 +258,7 @@ def main():
         t = _phase_time("render (no ds)", t_brute)
 
         stats_brute = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
-        avg_tris_brute = np.mean(stats_brute[:, :, 0])
-        print_statistics(stats_brute, t, width, height, len(triangles))
+        print_statistics(stats_brute, t - t_brute, len(triangles), is_ds=use_bvh)
         print()
 
         # reallocate buffers for the actual run
@@ -214,7 +275,7 @@ def main():
     render_time = t_bvh_end - t_bvh_start
 
     stats = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
-    print_statistics(stats, render_time, width, height, len(triangles))
+    print_statistics(stats, render_time, len(triangles))
 
     output_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "output", "output"

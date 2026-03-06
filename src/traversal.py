@@ -72,9 +72,7 @@ def get_closest_hit(
         for i in range(triangles.shape[0]):
             tri_tests += 1
             a, b, c = get_tri_verts(triangles, i)
-            t, u, v = intersect_triangle(
-                ray_origin, ray_dir, a, b, c, is_primary
-            )
+            t, u, v = intersect_triangle(ray_origin, ray_dir, a, b, c, is_primary)
             if EPSILON < t < closest_t:
                 closest_t = t
                 hit_idx = i
@@ -90,15 +88,18 @@ def is_in_shadow(
 ):
     # any-hit traversal to determine if a point is shadowed
     assert dist_to_light > 0.0
+    tri_tests = 0
+    node_tests = 0
 
     if not use_bvh:
         for i in range(triangles.shape[0]):
+            tri_tests += 1
             ta, tb, tc = get_tri_verts(triangles, i)
             t, _u, _v = intersect_triangle(shadow_ro, d_l, ta, tb, tc, True)
 
             if EPSILON < t < dist_to_light:
-                return True
-        return False
+                return True, tri_tests, node_tests
+        return False, tri_tests, node_tests
 
     # stack is provided by the caller, reuse it
     stack_ptr = 0
@@ -108,6 +109,7 @@ def is_in_shadow(
         assert stack_ptr < STACK_SIZE
         node_idx = stack[stack_ptr]
         stack_ptr -= 1
+        node_tests += 1
 
         bmin = vec3(
             bvh_nodes[node_idx, 0], bvh_nodes[node_idx, 1], bvh_nodes[node_idx, 2]
@@ -127,14 +129,13 @@ def is_in_shadow(
                 start = int(data1)
                 count = int(data2)
                 for i in range(start, start + count):
+                    tri_tests += 1
                     ta, tb, tc = get_tri_verts(triangles, i)
-                    t, _u, _v = intersect_triangle(
-                        shadow_ro, d_l, ta, tb, tc, True
-                    )
+                    t, _u, _v = intersect_triangle(shadow_ro, d_l, ta, tb, tc, True)
 
                     # immediate return on first valid blocking intersection
                     if EPSILON < t < dist_to_light:
-                        return True
+                        return True, tri_tests, node_tests
             else:
                 left_child = int(data1)
                 right_child = int(-data2)
@@ -142,4 +143,5 @@ def is_in_shadow(
                 stack[stack_ptr] = right_child
                 stack_ptr += 1
                 stack[stack_ptr] = left_child
-    return False
+
+    return False, tri_tests, node_tests

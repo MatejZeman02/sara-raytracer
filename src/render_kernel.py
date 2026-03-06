@@ -3,7 +3,17 @@ from numpy import float32, int32, empty
 from numba import cuda, njit, int32, prange
 
 from settings import DEVICE, MAX_BOUNCES
-from constants import STACK_SIZE, ZERO, ONE, THROUGHPUT_THRESHOLD
+from constants import (
+    STACK_SIZE,
+    ZERO,
+    ONE,
+    THROUGHPUT_THRESHOLD,
+    PRIMARY_TRI,
+    PRIMARY_NODE,
+    PRIMARY_RAY,
+    SECONDARY_RAY,
+    SHADOW_RAY,
+)
 
 from utils import device_jit
 from utils.vec_utils import add, sub, mul, dot, normalize, vec3
@@ -64,17 +74,17 @@ def render_pixel(
             is_primary,
         )
 
-        # accumulate statistics
-        # track how deep the ray goes
-        out_stats[y, x, 4] = bounce + 1
-
+        # accumulate statistics:
         if is_primary:
-            out_stats[y, x, 0] = tri_tests
-            out_stats[y, x, 1] = node_tests
-
-        # total stats (primary + shadows + bounces)
-        out_stats[y, x, 2] += tri_tests
-        out_stats[y, x, 3] += node_tests
+            out_stats[y, x, PRIMARY_TRI] = tri_tests  # initial tri tests
+            out_stats[y, x, PRIMARY_NODE] = node_tests  # initial node tests
+            out_stats[y, x, PRIMARY_RAY] = 1  # exactly 1 primary ray
+            out_stats[y, x, SECONDARY_RAY] = 0  # init secondary rays
+            out_stats[y, x, SHADOW_RAY] = 0  # init shadow rays
+        else:
+            out_stats[y, x, PRIMARY_TRI] += tri_tests
+            out_stats[y, x, PRIMARY_NODE] += node_tests
+            out_stats[y, x, SECONDARY_RAY] += 1  # one more secondary ray
 
         if hit_idx == -1:
             mc = get_miss_color()
@@ -113,7 +123,8 @@ def render_pixel(
         if n_dot_l <= ZERO:
             shadowed = True
         else:
-            shadowed = compute_shadowed(
+            out_stats[y, x, SHADOW_RAY] += 1  # count shadow rays
+            shadowed, s_tri, s_node = compute_shadowed(
                 triangles,
                 bvh_nodes,
                 use_bvh,
@@ -133,6 +144,9 @@ def render_pixel(
                 dist_to_light,
                 stack,
             )
+            # accumulate tests from shadow ray traversal
+            out_stats[y, x, PRIMARY_TRI] += s_tri
+            out_stats[y, x, PRIMARY_NODE] += s_node
 
         # compute and add direct light to final color
         direct_color = compute_lit_color(
