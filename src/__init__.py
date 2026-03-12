@@ -1,0 +1,289 @@
+"""Homework renderer package entrypoint."""
+
+# pylint: disable=too-many-locals, unused-variable, line-too-long
+
+import time
+
+LOAD_PYTHON_TIME = 1.0
+t_start = time.perf_counter() - LOAD_PYTHON_TIME
+
+import math
+import os
+import sys
+import warnings
+
+import numpy as np
+from numba.core.errors import NumbaPerformanceWarning
+from PIL import Image
+
+from .bvh import build_bvh
+from .render_kernel import render_kernel
+from .constants import BLOCK_THREADS
+from .settings import (
+    CPU_DIMENSION,
+    GPU_DIMENSION,
+    DEVICE,
+    RENDER_NON_BVH_STATS,
+    USE_BVH_CACHE,
+)
+from .setup_vectors import build_setup_vectors
+
+if DEVICE == "gpu":
+    from numba import cuda
+
+warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from utils.kernel_manager import KernelManager
+from utils.obj_loader import load_light_cam_data, load_scene
+from utils.ppm import save_ppm
+
+
+def _phase_time(label: str, t0: float, fps: bool = False) -> float:
+    """Print elapsed time from t0 and return new timestamp."""
+    t1 = time.perf_counter()
+    print(
+        f"[timing] {label:<20}: {t1 - t0:7.2f} s"
+        + (f" ({1.0/(t1 - t0):.1f} FPS)" if fps else "")
+    )
+    return t1
+
+
+def count_f64_in_ptx():
+    """for float 64 hunting: (and line debug info in the kernel enabled)"""
+    ptx_code = render_kernel.inspect_asm()
+    for _signature, ptx in ptx_code.items():
+        # count double precision instructions
+        f64_count = ptx.count(".f64")
+        if f64_count > 0:
+            print(f"FP64 instructions: {f64_count}")
+
+        # save to file to search for "cvt.f64.f32" (conversion)
+        with open("kernel.ptx", "w") as f:
+            f.write(ptx)
+
+
+def load_or_build_scene(json_file, cache_file, t):
+    """load scene from cache or build bvh from scratch."""
+    if os.path.exists(cache_file) and USE_BVH_CACHE:
+        cache = np.load(cache_file)
+        bvh_nodes = cache["bvh_nodes"]
+        triangles = cache["triangles"]
+        tri_normals = cache["tri_normals"]
+        mat_indices = cache["mat_indices"]
+        materials = cache["materials"]
+        light_data, cam_data, _ = load_light_cam_data(json_file)
+    else:
+        triangles, tri_normals, mat_indices, materials, light_data, cam_data = (
+            load_scene(json_file)
+        )
+        assert len(triangles) > 0
+
+        bvh_nodes, triangles, tri_normals, mat_indices = build_bvh(
+            triangles, tri_normals, mat_indices
+        )
+
+        np.savez(
+            cache_file,
+            bvh_nodes=bvh_nodes,
+            triangles=triangles,
+            tri_normals=tri_normals,
+            mat_indices=mat_indices,
+            materials=materials,
+        )
+        t = _phase_time("bvh build", t)
+    return (
+        triangles,
+        tri_normals,
+        mat_indices,
+        materials,
+        light_data,
+        cam_data,
+        bvh_nodes,
+        t,
+    )
+
+
+def allocate_buffers(width, height):
+    """allocate framebuffer and statistics arrays."""
+    assert width > 0 and height > 0
+    # 0: primary tri tests
+    # 1: primary node tests
+    # 2: primary rays
+    # 3: secondary rays (refractions + bounces)
+    # 4: shadow rays
+    STATS_TUPLE = (height, width, 5)
+    FB_SHAPE = (height, width, 3)  # RGB8 framebuffer
+    if DEVICE == "gpu":
+        fb = cuda.device_array(FB_SHAPE, dtype=np.uint8)
+        out_stats = cuda.device_array(STATS_TUPLE, dtype=np.int32)
+    else:
+        fb = np.zeros(FB_SHAPE, dtype=np.uint8)
+        out_stats = np.zeros(STATS_TUPLE, dtype=np.int32)
+
+    return fb, out_stats
+
+
+def print_statistics(stats, render_time, total_triangles, is_ds=True):
+    """calculate and print advanced rendering statistics with a focus on readability and ratios."""
+    assert stats.ndim == 3
+    assert stats.shape[2] == 5
+    assert render_time >= 0.0
+    assert total_triangles > 0
+
+    tri_tests = stats[:, :, 0]
+    node_tests = stats[:, :, 1]
+    prim_rays = stats[:, :, 2]
+    sec_rays = stats[:, :, 3]
+    shad_rays = stats[:, :, 4]
+
+    # calculate overall sums
+    tot_prim = np.sum(prim_rays)
+    tot_sec = np.sum(sec_rays)
+    tot_shad = np.sum(shad_rays)
+    tot_rays = tot_prim + tot_sec + tot_shad
+
+    tot_tri = np.sum(tri_tests)
+    tot_node = np.sum(node_tests)
+    tot_inc = tot_tri + tot_node
+
+    # calculate performance
+    mrays_sec = (tot_rays / 1e6) / render_time if render_time > 0 else 0
+
+    # calculate ratios and averages
+    pct_prim = (tot_prim / tot_rays * 100) if tot_rays else 0
+    pct_sec = (tot_sec / tot_rays * 100) if tot_rays else 0
+    pct_shad = (tot_shad / tot_rays * 100) if tot_rays else 0
+
+    node_tri_ratio = (tot_node / tot_tri) if tot_tri > 0 else 0
+    tests_per_ray = (tot_inc / tot_rays) if tot_rays > 0 else 0
+    nodes_per_ray = (tot_node / tot_rays) if tot_rays > 0 else 0
+
+    optimal_log_nodes = math.log2(total_triangles)
+
+    # calculate per pixel arrays
+    total_rays_per_px = prim_rays + sec_rays + shad_rays
+    total_inc_per_px = tri_tests + node_tests
+    # max rays per pixel
+    # max_rays_pix = np.max(total_rays_per_px)
+
+    width = stats.shape[1]
+    height = stats.shape[0]
+
+    SEP_LEN = 65
+    SEP_EQUAL = "=" * SEP_LEN
+    SEP_DASH = "-" * SEP_LEN
+    print(
+        f"\n{SEP_EQUAL}\n"
+        f"  STATISTICS ({'DS' if is_ds else 'No DS'} on {DEVICE.upper()})\n"
+        f"{SEP_EQUAL}\n"
+        f"Resolution:             {width} x {height} ({tot_prim:,} pixels)\n"
+        f"Render time:            {render_time:.3f} s\n"
+        f"Throughput (whole run): {mrays_sec:.2f} MRays/s\n"
+        f"{SEP_DASH}\n"
+        f"RAY DISTRIBUTION (Total: {tot_rays:,})\n"
+        f"  Primary:              {pct_prim:5.1f}%  ({tot_prim:,})\n"
+        f"  Secondary:            {pct_sec:5.1f}%  ({tot_sec:,})\n"
+        f"  Shadow:               {pct_shad:5.1f}%  ({tot_shad:,})\n"
+        f"{SEP_DASH}\n"
+        f"BVH EFFICIENCY (Total incidence ops: {tot_inc:,})\n"
+        f"  Node/Triangle ratio:  {node_tri_ratio:.1f} : 1\n"
+        f"  Avg ops per ray:      {tests_per_ray:.1f}\n"
+        f"  Avg nodes per ray:    {nodes_per_ray:.1f} (Ideal O(logN) ~ {optimal_log_nodes:.1f})\n"
+        f"{SEP_DASH}\n"
+        f"PER-PIXEL LOAD (min / mean / max)\n"
+        f"  Rays calls:        {np.min(total_rays_per_px)} / {np.mean(total_rays_per_px):.1f} / {np.max(total_rays_per_px)}\n"
+        # f"max: {max_rays_pix} = 1 primary + {np.floor(max_rays_pix/2):.0f} secondary + {np.ceil(max_rays_pix/2):.0f} shadow r.\n"
+        f"  Incidence tests:   {np.min(total_inc_per_px)} / {np.mean(total_inc_per_px):.1f} / {np.max(total_inc_per_px)}\n"
+        f"{SEP_EQUAL}"
+    )
+
+
+def save_image(fb, output_path):
+    """copy framebuffer to host and save to disk."""
+    assert fb is not None
+    host_fb = fb.copy_to_host() if DEVICE == "gpu" else fb
+
+    save_ppm(output_path + ".ppm", host_fb)
+    img = Image.fromarray(host_fb)
+    img.save(output_path + ".jpg")
+    print(f"Click to see the result onto: {output_path}.jpg")
+
+
+def main():
+    """run the render pipeline."""
+    print(f"Runs on device: {DEVICE.upper()}")
+    t = _phase_time("init python", t_start)
+
+    width = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
+    height = width
+    assert width > 0
+
+    json_file = os.path.join(project_root, "box-advanced", "setup.json")
+    cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
+    cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
+
+    (
+        triangles,
+        tri_normals,
+        mat_indices,
+        materials,
+        light_data,
+        cam_data,
+        bvh_nodes,
+        t,
+    ) = load_or_build_scene(json_file, cache_file, t)
+
+    origin, p00, qw, qh, light_pos, light_color = build_setup_vectors(
+        light_data, cam_data, width, height
+    )
+    fb, out_stats = allocate_buffers(width, height)
+    if DEVICE == "gpu":
+        t = _phase_time("init cuda + alloc", t)
+
+    manager = KernelManager(render_kernel)
+    use_bvh = False
+    manager.precompile_run(locals())
+
+    threads = (BLOCK_THREADS, BLOCK_THREADS)
+    grid = (math.ceil(width / threads[0]), math.ceil(height / threads[1]))
+    t = _phase_time("jit compile run", t)
+
+    if RENDER_NON_BVH_STATS:
+        use_bvh = False
+        t_brute = manager.run(grid, threads, locals())
+        t = _phase_time("render (no ds)", t_brute)
+
+        stats_brute = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
+        print_statistics(stats_brute, t - t_brute, len(triangles), is_ds=use_bvh)
+        print()
+
+        # reallocate buffers for the actual run
+        fb, out_stats = allocate_buffers(width, height)
+
+    use_bvh = True
+    if DEVICE == "gpu":
+        cuda.profile_start()
+    t_bvh_start = manager.run(grid, threads, locals())
+    if DEVICE == "gpu":
+        cuda.profile_stop()
+
+    t_bvh_end = _phase_time("render (with ds)", t_bvh_start, fps=True)
+    render_time = t_bvh_end - t_bvh_start
+
+    stats = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
+    print_statistics(stats, render_time, len(triangles))
+
+    output_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "output", "output"
+    )
+    save_image(fb, output_path)
+
+    print(f"\n[timing] {'total (+-)':<20}: {time.perf_counter() - t_start:7.2f} s")
+
+
+# expose 'main' as the only public symbol of the package
+__all__ = ["main"]
