@@ -18,15 +18,25 @@ from PIL import Image
 
 from .bvh import build_bvh
 from .render_kernel import render_kernel
-from .constants import BLOCK_THREADS
+from .constants import (
+    BLOCK_THREADS,
+    SEED,
+    MAT_EMISSIVE_R,
+    MAT_EMISSIVE_G,
+    MAT_EMISSIVE_B,
+)
 from .settings import (
     CPU_DIMENSION,
     GPU_DIMENSION,
     DEVICE,
     RENDER_NON_BVH_STATS,
     USE_BVH_CACHE,
+    DENOISE,
 )
 from .setup_vectors import build_setup_vectors
+from .rng import create_rng_states
+from .framebuffer import postprocess_hdr
+from .denoiser import denoise
 
 if DEVICE == "gpu":
     from numba import cuda
@@ -68,7 +78,7 @@ def count_f64_in_ptx():
 
 def load_or_build_scene(json_file, cache_file, t):
     """load scene from cache or build bvh from scratch."""
-    if os.path.exists(cache_file) and USE_BVH_CACHE:
+    if USE_BVH_CACHE and os.path.exists(cache_file):
         cache = np.load(cache_file)
         bvh_nodes = cache["bvh_nodes"]
         triangles = cache["triangles"]
@@ -108,7 +118,7 @@ def load_or_build_scene(json_file, cache_file, t):
 
 
 def allocate_buffers(width, height):
-    """allocate framebuffer and statistics arrays."""
+    """allocate HDR framebuffer and statistics arrays."""
     assert width > 0 and height > 0
     # 0: primary tri tests
     # 1: primary node tests
@@ -116,15 +126,15 @@ def allocate_buffers(width, height):
     # 3: secondary rays (refractions + bounces)
     # 4: shadow rays
     STATS_TUPLE = (height, width, 5)
-    FB_SHAPE = (height, width, 3)  # RGB8 framebuffer
+    FB_HDR_SHAPE = (height, width, 3)  # float32 HDR framebuffer
     if DEVICE == "gpu":
-        fb = cuda.device_array(FB_SHAPE, dtype=np.uint8)
+        fb_hdr = cuda.device_array(FB_HDR_SHAPE, dtype=np.float32)
         out_stats = cuda.device_array(STATS_TUPLE, dtype=np.int32)
     else:
-        fb = np.zeros(FB_SHAPE, dtype=np.uint8)
+        fb_hdr = np.zeros(FB_HDR_SHAPE, dtype=np.float32)
         out_stats = np.zeros(STATS_TUPLE, dtype=np.int32)
 
-    return fb, out_stats
+    return fb_hdr, out_stats
 
 
 def print_statistics(stats, render_time, total_triangles, is_ds=True):
@@ -203,11 +213,13 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
 
 
 def save_image(fb, output_path):
-    """copy framebuffer to host and save to disk."""
+    """save uint8 host framebuffer to disk."""
     assert fb is not None
-    host_fb = fb.copy_to_host() if DEVICE == "gpu" else fb
+    # fb is always a host numpy uint8 array (produced by postprocess_hdr)
+    host_fb = fb.copy_to_host() if hasattr(fb, "copy_to_host") else fb
 
-    save_ppm(output_path + ".ppm", host_fb)
+    # turned off for now...
+    # save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
     img.save(output_path + ".jpg")
     print(f"Click to see the result onto: {output_path}.jpg")
@@ -222,7 +234,7 @@ def main():
     height = width
     assert width > 0
 
-    json_file = os.path.join(project_root, "box-advanced", "setup.json")
+    json_file = os.path.join(project_root, "scenes", "box-advanced", "setup.json")
     cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
     cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
 
@@ -240,9 +252,24 @@ def main():
     origin, p00, qw, qh, light_pos, light_color = build_setup_vectors(
         light_data, cam_data, width, height
     )
-    fb, out_stats = allocate_buffers(width, height)
+    fb_hdr, out_stats = allocate_buffers(width, height)
     if DEVICE == "gpu":
         t = _phase_time("init cuda + alloc", t)
+
+    # build index array of emissive triangles (after bvh reordering) for area light sampling
+    emissive_mask = (
+        (materials[mat_indices, MAT_EMISSIVE_R] > 0)
+        | (materials[mat_indices, MAT_EMISSIVE_G] > 0)
+        | (materials[mat_indices, MAT_EMISSIVE_B] > 0)
+    )
+    emissive_tris = np.where(emissive_mask)[0].astype(np.int32)
+    num_emissive = np.int32(len(emissive_tris))
+    assert (
+        num_emissive > 0
+    ), "scene has no emissive triangles - area light requires at least one"
+
+    # per-pixel rng states sized for the full image
+    rng_states = create_rng_states(width * height, seed=SEED)
 
     manager = KernelManager(render_kernel)
     use_bvh = False
@@ -262,7 +289,7 @@ def main():
         print()
 
         # reallocate buffers for the actual run
-        fb, out_stats = allocate_buffers(width, height)
+        fb_hdr, out_stats = allocate_buffers(width, height)
 
     use_bvh = True
     if DEVICE == "gpu":
@@ -273,6 +300,19 @@ def main():
 
     t_bvh_end = _phase_time("render (with ds)", t_bvh_start, fps=True)
     render_time = t_bvh_end - t_bvh_start
+
+    # copy HDR buffer to host, denoise, then apply ACES+sRGB to produce uint8
+    fb_hdr_host = fb_hdr.copy_to_host() if DEVICE == "gpu" else fb_hdr
+    t = _phase_time("copy hdr to host", t_bvh_end)
+    if DENOISE:
+        denoise(fb_hdr_host, width, height)
+        t = _phase_time("oidn denoise", t)
+
+    fb = np.zeros((height, width, 3), dtype=np.uint8)
+    postprocess_hdr(fb_hdr_host, fb, width, height)
+    t = _phase_time("postprocess", t)
+    # add postprocess time to render time for more accurate "total time to final image" stat
+    render_time += t - t_bvh_end
 
     stats = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
     print_statistics(stats, render_time, len(triangles))

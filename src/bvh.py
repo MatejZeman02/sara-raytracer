@@ -2,11 +2,21 @@
 
 import numpy as np
 from numba import njit
+from constants import (
+    BVH_MIN_X,
+    BVH_MIN_Y,
+    BVH_MIN_Z,
+    BVH_MAX_X,
+    BVH_MAX_Y,
+    BVH_MAX_Z,
+    BVH_LEFT_OR_START,
+    BVH_RIGHT_OR_COUNT,
+)
 
 
 @njit
 def get_aabb(triangles, tri_ids, start, end):
-    # compute bounding box for a subset of triangles
+    """Bounding box for a subset of triangles"""
     assert start < end
 
     bmin = np.array([1e20, 1e20, 1e20], dtype=np.float32)
@@ -63,10 +73,10 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
 
         # force leaf if too few triangles
         if num_tris <= 2:
-            nodes[node_idx, 0:3] = bmin
-            nodes[node_idx, 3:6] = bmax
-            nodes[node_idx, 6] = start
-            nodes[node_idx, 7] = num_tris
+            nodes[node_idx, BVH_MIN_X : BVH_MIN_Z + 1] = bmin
+            nodes[node_idx, BVH_MAX_X : BVH_MAX_Z + 1] = bmax
+            nodes[node_idx, BVH_LEFT_OR_START] = start
+            nodes[node_idx, BVH_RIGHT_OR_COUNT] = num_tris
             continue
 
         # centroid bounds for binning
@@ -139,10 +149,10 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
 
         # make leaf if sah cost is worse than just intersecting all
         if best_cost >= num_tris:
-            nodes[node_idx, 0:3] = bmin
-            nodes[node_idx, 3:6] = bmax
-            nodes[node_idx, 6] = start
-            nodes[node_idx, 7] = num_tris
+            nodes[node_idx, BVH_MIN_X : BVH_MIN_Z + 1] = bmin
+            nodes[node_idx, BVH_MAX_X : BVH_MAX_Z + 1] = bmax
+            nodes[node_idx, BVH_LEFT_OR_START] = start
+            nodes[node_idx, BVH_RIGHT_OR_COUNT] = num_tris
             continue
 
         # partition triangle indices in place
@@ -164,10 +174,10 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
         right_child = nodes_used + 1
         nodes_used += 2
 
-        nodes[node_idx, 0:3] = bmin
-        nodes[node_idx, 3:6] = bmax
-        nodes[node_idx, 6] = left_child
-        nodes[node_idx, 7] = -right_child
+        nodes[node_idx, BVH_MIN_X : BVH_MIN_Z + 1] = bmin
+        nodes[node_idx, BVH_MAX_X : BVH_MAX_Z + 1] = bmax
+        nodes[node_idx, BVH_LEFT_OR_START] = left_child
+        nodes[node_idx, BVH_RIGHT_OR_COUNT] = -right_child
 
         # push to stack larger first to minimize stack depth
         if split_idx - start > end - split_idx:

@@ -4,15 +4,15 @@ import math
 
 from utils import device_jit
 from utils.vec_utils import vec3, mul_vec, cross, dot, sub
-from constants import EPSILON, INFINITY_VEC, ZERO, ONE
+from constants import DET_EPSILON, INFINITY_VEC, ZERO, ONE
 
 
 @device_jit
 def intersect_aabb(ro, inv_rd, bmin, bmax):
     """Ray-AABB intersection test using the slab method."""
     # calculate intersection t-values for all axes
-    t1 = mul_vec(sub(bmin, ro), inv_rd)
-    t2 = mul_vec(sub(bmax, ro), inv_rd)
+    t1 = mul_vec(sub(bmin, ro), inv_rd)  # near_t_per_axis
+    t2 = mul_vec(sub(bmax, ro), inv_rd)  # far_t_per_axis
 
     # find min and max for x, y, z
     tmin_x = min(t1[0], t2[0])
@@ -37,31 +37,31 @@ def intersect_aabb(ro, inv_rd, bmin, bmax):
 @device_jit
 def intersect_triangle(ro, rd, a, b, c, cullback):
     """Möller-Trumbore ray-triangle intersection algorithm."""
-    e1 = sub(b, a)
-    e2 = sub(c, a)
+    e1 = sub(b, a)  # edge_1
+    e2 = sub(c, a)  # edge_2
     pvec = cross(rd, e2)
     det = dot(e1, pvec)
 
     # primary rays cull backfaces to get into the scene
     if cullback:
-        if det < EPSILON:
+        if det < DET_EPSILON:
             return INFINITY_VEC
     else:
-        if math.fabs(det) < EPSILON:
+        if math.fabs(det) < DET_EPSILON:
             return INFINITY_VEC
 
     inv_det = ONE / det
     tvec = sub(ro, a)
-    u = dot(tvec, pvec) * inv_det
+    u = dot(tvec, pvec) * inv_det  # barycentric_u
 
     if u < ZERO or u > ONE:
         return INFINITY_VEC
 
     qvec = cross(tvec, e1)
-    v = dot(rd, qvec) * inv_det
+    v = dot(rd, qvec) * inv_det  # barycentric_v
 
     if v < ZERO or u + v > ONE:
         return INFINITY_VEC
 
-    t = dot(e2, qvec) * inv_det
+    t = dot(e2, qvec) * inv_det  # hit_distance
     return t, u, v

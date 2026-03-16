@@ -1,6 +1,6 @@
 from utils import device_jit
 from utils.vec_utils import vec3, normalize, cross, sub, neg, dot
-from constants import BARYCENTRIC_EPSILON, ZERO, ONE, EPSILON
+from constants import BARYCENTRIC_EPSILON, ZERO, ONE
 
 
 @device_jit
@@ -11,7 +11,7 @@ def is_valid_normal(n, ray_dir):
 
 @device_jit
 def get_tri_verts(triangles, idx):
-    """fetch triangle vertices from array"""
+    """fetch triangle vertices from array: triangles[idx, abc, xyz]"""
     assert idx >= 0
     a = vec3(triangles[idx, 0, 0], triangles[idx, 0, 1], triangles[idx, 0, 2])
     b = vec3(triangles[idx, 1, 0], triangles[idx, 1, 1], triangles[idx, 1, 2])
@@ -21,7 +21,7 @@ def get_tri_verts(triangles, idx):
 
 @device_jit
 def get_vertex_normals(tri_normals, hit_idx):
-    """fetch vertex normals for hit triangle from array"""
+    """fetch vertex normals for hit triangle from array: tri_normals[hit_idx, abc, xyz]"""
     na = vec3(
         tri_normals[hit_idx, 0, 0],
         tri_normals[hit_idx, 0, 1],
@@ -52,11 +52,11 @@ def compute_surface_normal(triangles, tri_normals, hit_idx, ray_dir, hit_u, hit_
 
     na, nb, nc = get_vertex_normals(tri_normals, hit_idx)
 
-    # throw error if vertex normals are missing from obj
+    # FIXME: (too late for check?) throw error if vertex normals are missing from obj
     assert (
         na[0] != ZERO or na[1] != ZERO or na[2] != ZERO
     ), "vertex normals are missing from the obj file"
-    # compute w barycentric weight
+    # 'w' barycentric weight
     w = ONE - hit_u - hit_v
     # verify coordinate sanity
     assert w >= -BARYCENTRIC_EPSILON and w <= ONE + BARYCENTRIC_EPSILON

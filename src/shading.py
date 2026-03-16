@@ -4,8 +4,9 @@ import math
 from numpy import float32
 
 from utils import device_jit
-from constants import DENOMINATOR_EPSILON, EPSILON, ZERO, ONE, TWO, PI
+from constants import DENOMINATOR_EPSILON, ZERO, ONE, TWO, PI
 from utils.vec_utils import vec3, add, dot, mul, mul_vec, normalize, sub
+
 
 @device_jit
 def phong_diffuse(n, d_l, r_d, i_l):
@@ -17,7 +18,7 @@ def phong_diffuse(n, d_l, r_d, i_l):
 @device_jit
 def phong_specular(n, v, d_l, r_s, h, i_l):
     temp = mul(n, TWO * dot(n, d_l))
-    r_l = normalize(sub(temp, d_l))
+    r_l = normalize(sub(temp, d_l))  # reflected_light_direction
 
     v_dot_r = max(ZERO, dot(v, r_l))
     spec_factor = math.pow(v_dot_r, h)
@@ -45,7 +46,7 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
     n_dot_v = max(ZERO, dot(n, v))
 
     # calculate halfway vector
-    h = normalize(add(v, l))
+    h = normalize(add(v, l))  # half_vector
 
     n_dot_h = max(ZERO, dot(n, h))
     h_dot_v = max(ZERO, dot(h, v))
@@ -53,9 +54,9 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
     roughness = get_roughness_from_ns(ns)
 
     # brdf components
-    f = fresnel_schlick(h_dot_v, r_s)
-    d = distribution_ggx(n_dot_h, roughness)
-    g = geometry_schlick_ggx(n_dot_v, n_dot_l, roughness)
+    f = fresnel_schlick(h_dot_v, r_s)  # fresnel
+    d = distribution_ggx(n_dot_h, roughness)  # normal_distribution
+    g = geometry_schlick_ggx(n_dot_v, n_dot_l, roughness)  # geometry
 
     # specular reflection
     denominator = float32(4.0) * n_dot_v * n_dot_l + DENOMINATOR_EPSILON
@@ -64,7 +65,7 @@ def cook_torrance_shading(n, v, l, r_d, r_s, ns, i_l):
 
     # energy conservation for diffuse
     WHITE = vec3(ONE, ONE, ONE)
-    k_d = sub(WHITE, f)
+    k_d = sub(WHITE, f)  # diffuse_energy
 
     # lambertian diffuse
     diffuse = mul(r_d, ONE / PI)
@@ -91,8 +92,8 @@ def get_roughness_from_ns(ns):
 def fresnel_schlick(cos_theta, f0):
     """schlick approximation for fresnel"""
     # calculate one minus cos theta to the fifth power
-    omc = ONE - cos_theta
-    omc5 = omc * omc * omc * omc * omc
+    omc = ONE - cos_theta  # one_minus_cosine
+    omc5 = omc * omc * omc * omc * omc  # (one_minus_cosine)^5
 
     # interpolate between base reflectivity and white
     WHITE = vec3(ONE, ONE, ONE)
@@ -104,8 +105,8 @@ def fresnel_schlick(cos_theta, f0):
 @device_jit
 def distribution_ggx(n_dot_h, roughness):
     """trowbridge-reitz ggx normal distribution"""
-    a = roughness * roughness
-    a2 = a * a
+    a = roughness * roughness  # alpha
+    a2 = a * a  # alpha_squared
     n_dot_h2 = n_dot_h * n_dot_h
 
     # denominator
@@ -118,8 +119,8 @@ def distribution_ggx(n_dot_h, roughness):
 @device_jit
 def geometry_schlick_ggx(n_dot_v, n_dot_l, roughness):
     """smith geometry function with schlick-ggx"""
-    r = roughness + ONE
-    k = (r * r) / float32(8.0)
+    r = roughness + ONE  # remapped_roughness
+    k = (r * r) / float32(8.0)  # schlick_k
 
     # shadowing and masking
     ggx1 = n_dot_v / (n_dot_v * (ONE - k) + k)

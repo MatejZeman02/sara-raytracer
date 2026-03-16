@@ -2,7 +2,7 @@ import math
 from numpy import float32
 from utils import device_jit
 from utils.vec_utils import vec3, normalize, add, sub, mul, dot
-from constants import DENOMINATOR_EPSILON, TWO, ZERO, ONE, EPSILON
+from constants import DENOMINATOR_EPSILON, TWO, ZERO, ONE, RAY_EPSILON
 
 
 @device_jit
@@ -15,18 +15,18 @@ def compute_inv_dir(dir_vec):
 
 
 @device_jit
-def compute_primary_ray(p00, qw, qh, origin, x, y):
-    """primary ray generation"""
-    # float conversion needed because of the multiplication
-    xf = float32(x)
-    yf = float32(y)
+def compute_primary_ray(p00, qw, qh, origin, x, y, jx, jy):
+    """primary ray generation with optional sub-pixel jitter for anti-aliasing"""
+    # float conversion needed because of the multiplication; jx/jy offset in [-0.5, 0.5)
+    xf = float32(x) + jx  # pixel_x_with_jitter
+    yf = float32(y) + jy  # pixel_y_with_jitter
     dir_x = p00[0] + xf * qw[0] - yf * qh[0]
     dir_y = p00[1] + xf * qw[1] - yf * qh[1]
     dir_z = p00[2] + xf * qw[2] - yf * qh[2]
 
     ray_dir = normalize(vec3(dir_x, dir_y, dir_z))
     ray_origin = vec3(origin[0], origin[1], origin[2])
-    inv_rd = compute_inv_dir(ray_dir) # dir^-1
+    inv_rd = compute_inv_dir(ray_dir)  # dir^-1
     return ray_origin, ray_dir, inv_rd
 
 
@@ -36,14 +36,15 @@ def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
     # relative index of refraction depends on if ray is entering or exiting
     rel_ior = ior if is_backface else (ONE / (ior + DENOMINATOR_EPSILON))
     # incidence angle
-    cos_i = dot(ray_dir, n)
+    cos_i = dot(ray_dir, n)  # cosine_incidence
     # Snell's law discriminant 'k'
-    k = ONE - (rel_ior * rel_ior) * (ONE - (cos_i * cos_i))
+    k = ONE - (rel_ior * rel_ior) * (ONE - (cos_i * cos_i))  # snell_discriminant
 
     if k < ZERO:
         # total internal reflection
         new_dir = sub(ray_dir, mul(n, TWO * cos_i))
-        new_origin = add(p, mul(geom_n, EPSILON))
+        # shift forwards
+        new_origin = add(p, mul(geom_n, RAY_EPSILON))
     else:
         # pass through glass
         new_dir = normalize(
@@ -53,7 +54,7 @@ def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
             )
         )
         # shift forwards
-        new_origin = sub(p, mul(geom_n, EPSILON))
+        new_origin = sub(p, mul(geom_n, RAY_EPSILON))
     return new_dir, new_origin
 
 
@@ -61,8 +62,8 @@ def compute_refraction(ray_dir, n, geom_n, p, ior, is_backface):
 def compute_reflection(ray_dir, n, geom_n, p):
     """compute reflection ray direction and origin"""
     # incidence angle
-    cos_i = dot(ray_dir, n)
+    cos_i = dot(ray_dir, n)  # cosine_incidence
     new_dir = sub(ray_dir, mul(n, TWO * cos_i))
     # shift backwards
-    new_origin = add(p, mul(geom_n, EPSILON))
+    new_origin = add(p, mul(geom_n, RAY_EPSILON))
     return new_dir, new_origin

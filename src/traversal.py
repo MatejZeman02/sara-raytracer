@@ -4,7 +4,19 @@ from utils import device_jit
 from utils.vec_utils import vec3
 from intersection import intersect_triangle, intersect_aabb
 from geometry import get_tri_verts
-from constants import ZERO, EPSILON, STACK_SIZE
+from constants import (
+    ZERO,
+    RAY_EPSILON,
+    STACK_SIZE,
+    BVH_MIN_X,
+    BVH_MIN_Y,
+    BVH_MIN_Z,
+    BVH_MAX_X,
+    BVH_MAX_Y,
+    BVH_MAX_Z,
+    BVH_LEFT_OR_START,
+    BVH_RIGHT_OR_COUNT,
+)
 
 
 @device_jit
@@ -31,19 +43,25 @@ def get_closest_hit(
             node_tests += 1
 
             bmin = vec3(
-                bvh_nodes[node_idx, 0], bvh_nodes[node_idx, 1], bvh_nodes[node_idx, 2]
+                bvh_nodes[node_idx, BVH_MIN_X],
+                bvh_nodes[node_idx, BVH_MIN_Y],
+                bvh_nodes[node_idx, BVH_MIN_Z],
             )
             bmax = vec3(
-                bvh_nodes[node_idx, 3], bvh_nodes[node_idx, 4], bvh_nodes[node_idx, 5]
+                bvh_nodes[node_idx, BVH_MAX_X],
+                bvh_nodes[node_idx, BVH_MAX_Y],
+                bvh_nodes[node_idx, BVH_MAX_Z],
             )
 
             hit, tmin = intersect_aabb(ray_origin, inv_rd, bmin, bmax)
 
             # traverse children only if ray hits the box and is closer than current closest_t
             if hit and tmin < closest_t:
-                data1 = bvh_nodes[node_idx, 6]  # positive for leaf nodes
+                data1 = bvh_nodes[
+                    node_idx, BVH_LEFT_OR_START
+                ]  # positive for leaf nodes
                 data2 = bvh_nodes[
-                    node_idx, 7
+                    node_idx, BVH_RIGHT_OR_COUNT
                 ]  # number of triangles for leaves or negative right child
 
                 if data2 > ZERO:
@@ -52,10 +70,12 @@ def get_closest_hit(
                     for i in range(start, start + count):
                         tri_tests += 1
                         a, b, c = get_tri_verts(triangles, i)
-                        t, u, v = intersect_triangle(
-                            ray_origin, ray_dir, a, b, c, is_primary
+                        t, u, v = (
+                            intersect_triangle(  # t: hit_distance; u/v: barycentric_uv
+                                ray_origin, ray_dir, a, b, c, is_primary
+                            )
                         )
-                        if EPSILON < t < closest_t:
+                        if RAY_EPSILON < t < closest_t:
                             closest_t = t
                             hit_idx = i
                             closest_u = u
@@ -72,8 +92,10 @@ def get_closest_hit(
         for i in range(triangles.shape[0]):
             tri_tests += 1
             a, b, c = get_tri_verts(triangles, i)
-            t, u, v = intersect_triangle(ray_origin, ray_dir, a, b, c, is_primary)
-            if EPSILON < t < closest_t:
+            t, u, v = intersect_triangle(
+                ray_origin, ray_dir, a, b, c, is_primary
+            )  # t: hit_distance; u/v: barycentric_uv
+            if RAY_EPSILON < t < closest_t:
                 closest_t = t
                 hit_idx = i
                 closest_u = u
@@ -95,9 +117,11 @@ def is_in_shadow(
         for i in range(triangles.shape[0]):
             tri_tests += 1
             ta, tb, tc = get_tri_verts(triangles, i)
-            t, _u, _v = intersect_triangle(shadow_ro, d_l, ta, tb, tc, True)
+            t, _u, _v = intersect_triangle(
+                shadow_ro, d_l, ta, tb, tc, False
+            )  # t: shadow_hit_distance
 
-            if EPSILON < t < dist_to_light:
+            if RAY_EPSILON < t < dist_to_light:
                 return True, tri_tests, node_tests
         return False, tri_tests, node_tests
 
@@ -112,18 +136,22 @@ def is_in_shadow(
         node_tests += 1
 
         bmin = vec3(
-            bvh_nodes[node_idx, 0], bvh_nodes[node_idx, 1], bvh_nodes[node_idx, 2]
+            bvh_nodes[node_idx, BVH_MIN_X],
+            bvh_nodes[node_idx, BVH_MIN_Y],
+            bvh_nodes[node_idx, BVH_MIN_Z],
         )
         bmax = vec3(
-            bvh_nodes[node_idx, 3], bvh_nodes[node_idx, 4], bvh_nodes[node_idx, 5]
+            bvh_nodes[node_idx, BVH_MAX_X],
+            bvh_nodes[node_idx, BVH_MAX_Y],
+            bvh_nodes[node_idx, BVH_MAX_Z],
         )
 
         hit, tmin = intersect_aabb(shadow_ro, inv_dl, bmin, bmax)
 
         # traverse only if box is hit and is closer than light source
         if hit and tmin < dist_to_light:
-            data1 = bvh_nodes[node_idx, 6]
-            data2 = bvh_nodes[node_idx, 7]
+            data1 = bvh_nodes[node_idx, BVH_LEFT_OR_START]
+            data2 = bvh_nodes[node_idx, BVH_RIGHT_OR_COUNT]
 
             if data2 > ZERO:
                 start = int(data1)
@@ -131,10 +159,12 @@ def is_in_shadow(
                 for i in range(start, start + count):
                     tri_tests += 1
                     ta, tb, tc = get_tri_verts(triangles, i)
-                    t, _u, _v = intersect_triangle(shadow_ro, d_l, ta, tb, tc, True)
+                    t, _u, _v = intersect_triangle(
+                        shadow_ro, d_l, ta, tb, tc, False
+                    )  # t: shadow_hit_distance
 
                     # immediate return on first valid blocking intersection
-                    if EPSILON < t < dist_to_light:
+                    if RAY_EPSILON < t < dist_to_light:
                         return True, tri_tests, node_tests
             else:
                 left_child = int(data1)
