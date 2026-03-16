@@ -13,6 +13,8 @@ from constants import (
     BVH_RIGHT_OR_COUNT,
 )
 
+BINS = 8
+
 
 @njit
 def get_aabb(triangles, tri_ids, start, end):
@@ -24,13 +26,27 @@ def get_aabb(triangles, tri_ids, start, end):
 
     for i in range(start, end):
         t_idx = tri_ids[i]
+
+        # loop over the 3 vertices, unrolling the 3 axes (x, y, z)
         for j in range(3):
-            for k in range(3):
-                val = triangles[t_idx, j, k]
-                if val < bmin[k]:
-                    bmin[k] = val
-                if val > bmax[k]:
-                    bmax[k] = val
+            v_x = triangles[t_idx, j, 0]
+            v_y = triangles[t_idx, j, 1]
+            v_z = triangles[t_idx, j, 2]
+
+            if v_x < bmin[0]:
+                bmin[0] = v_x
+            if v_x > bmax[0]:
+                bmax[0] = v_x
+
+            if v_y < bmin[1]:
+                bmin[1] = v_y
+            if v_y > bmax[1]:
+                bmax[1] = v_y
+
+            if v_z < bmin[2]:
+                bmin[2] = v_z
+            if v_z > bmax[2]:
+                bmax[2] = v_z
     return bmin, bmax
 
 
@@ -84,19 +100,31 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
         cmax = np.array([-1e20, -1e20, -1e20], dtype=np.float32)
         for i in range(start, end):
             t_idx = tri_ids[i]
-            for k in range(3):
-                val = centroids[t_idx, k]
-                if val < cmin[k]:
-                    cmin[k] = val
-                if val > cmax[k]:
-                    cmax[k] = val
+            # unrolled 'for k in range(3)'
+            val_x = centroids[t_idx, 0]
+            val_y = centroids[t_idx, 1]
+            val_z = centroids[t_idx, 2]
+
+            if val_x < cmin[0]:
+                cmin[0] = val_x
+            if val_x > cmax[0]:
+                cmax[0] = val_x
+
+            if val_y < cmin[1]:
+                cmin[1] = val_y
+            if val_y > cmax[1]:
+                cmax[1] = val_y
+
+            if val_z < cmin[2]:
+                cmin[2] = val_z
+            if val_z > cmax[2]:
+                cmax[2] = val_z
 
         best_cost = 1e20
         best_axis = -1
         best_split = 0.0
 
-        # test sah over 8 bins per axis
-        BINS = 8
+        # test sah over bins per axis
         for axis in range(3):
             if cmin[axis] == cmax[axis]:
                 continue
@@ -118,12 +146,25 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
                     if centroids[t_idx, axis] < split_val:
                         nl += 1
                         for j in range(3):
-                            for k in range(3):
-                                val = triangles[t_idx, j, k]
-                                if val < lmin[k]:
-                                    lmin[k] = val
-                                if val > lmax[k]:
-                                    lmax[k] = val
+                            # unrolled 'for k in range(3)'
+                            val_x = triangles[t_idx, j, 0]
+                            val_y = triangles[t_idx, j, 1]
+                            val_z = triangles[t_idx, j, 2]
+
+                            if val_x < lmin[0]:
+                                lmin[0] = val_x
+                            if val_x > lmax[0]:
+                                lmax[0] = val_x
+
+                            if val_y < lmin[1]:
+                                lmin[1] = val_y
+                            if val_y > lmax[1]:
+                                lmax[1] = val_y
+
+                            if val_z < lmin[2]:
+                                lmin[2] = val_z
+                            if val_z > lmax[2]:
+                                lmax[2] = val_z
                     else:
                         nr += 1
                         for j in range(3):
@@ -216,7 +257,7 @@ def build_bvh(triangles, tri_normals, mat_indices):
     tri_ids = np.arange(len(triangles), dtype=np.int32)
 
     max_nodes = len(triangles) * 2
-    nodes = np.zeros((max_nodes, 8), dtype=np.float32)
+    nodes = np.zeros((max_nodes, BINS), dtype=np.float32)
 
     nodes_used = build_bvh_jit(triangles, centroids, tri_ids, nodes)
 

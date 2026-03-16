@@ -177,11 +177,33 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
     # calculate per pixel arrays
     total_rays_per_px = prim_rays + sec_rays + shad_rays
     total_inc_per_px = tri_tests + node_tests
-    # max rays per pixel
-    # max_rays_pix = np.max(total_rays_per_px)
 
+    # calculate pixel workload distribution
     width = stats.shape[1]
     height = stats.shape[0]
+    tot_px = width * height
+
+    # empty pixels that only hit sky
+    sky_mask = total_rays_per_px == 1
+    sky_pixels = np.sum(sky_mask)
+
+    hit_mask = total_rays_per_px > 1
+    hit_incidences = total_inc_per_px[hit_mask]
+
+    if len(hit_incidences) > 0:
+        mean_inc = np.mean(hit_incidences)
+        # pixels needing more than twice the average incidence tests
+        hard_thresh = mean_inc * 2.0
+        hard_pixels = np.sum(hit_incidences > hard_thresh)
+        # standard geometry hits
+        standard_pixels = len(hit_incidences) - hard_pixels
+    else:
+        hard_pixels = 0
+        standard_pixels = 0
+
+    pct_sky = (sky_pixels / tot_px) * 100
+    pct_std = (standard_pixels / tot_px) * 100
+    pct_hard = (hard_pixels / tot_px) * 100
 
     SEP_LEN = 65
     SEP_EQUAL = "=" * SEP_LEN
@@ -199,15 +221,19 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
         f"  Secondary:            {pct_sec:5.1f}%  ({tot_sec:,})\n"
         f"  Shadow:               {pct_shad:5.1f}%  ({tot_shad:,})\n"
         f"{SEP_DASH}\n"
+        f"WORKLOAD DISTRIBUTION\n"
+        f"  Sky (1 ray):          {pct_sky:5.1f}%  ({sky_pixels:,})\n"
+        f"  Standard geometry:    {pct_std:5.1f}%  ({standard_pixels:,})\n"
+        f"  Hard (>> avg tests):  {pct_hard:5.1f}%  ({hard_pixels:,})\n"
+        f"{SEP_DASH}\n"
         f"BVH EFFICIENCY (Total incidence ops: {tot_inc:,})\n"
         f"  Node/Triangle ratio:  {node_tri_ratio:.1f} : 1\n"
         f"  Avg ops per ray:      {tests_per_ray:.1f}\n"
         f"  Avg nodes per ray:    {nodes_per_ray:.1f} (Ideal O(logN) ~ {optimal_log_nodes:.1f})\n"
         f"{SEP_DASH}\n"
-        f"PER-PIXEL LOAD (min / mean / max)\n"
-        f"  Rays calls:        {np.min(total_rays_per_px)} / {np.mean(total_rays_per_px):.1f} / {np.max(total_rays_per_px)}\n"
-        # f"max: {max_rays_pix} = 1 primary + {np.floor(max_rays_pix/2):.0f} secondary + {np.ceil(max_rays_pix/2):.0f} shadow r.\n"
-        f"  Incidence tests:   {np.min(total_inc_per_px)} / {np.mean(total_inc_per_px):.1f} / {np.max(total_inc_per_px)}\n"
+        f"PER_HIT-PIXEL LOAD (min / mean / max)\n"
+        f"  Rays calls:        {np.min(total_rays_per_px[hit_mask])} / {np.mean(total_rays_per_px[hit_mask]):.1f} / {np.max(total_rays_per_px[hit_mask])}\n"
+        f"  Incidence tests:   {np.min(total_inc_per_px[hit_mask])} / {np.mean(total_inc_per_px[hit_mask]):.1f} / {np.max(total_inc_per_px[hit_mask])}\n"
         f"{SEP_EQUAL}"
     )
 
@@ -310,7 +336,7 @@ def main():
 
     fb = np.zeros((height, width, 3), dtype=np.uint8)
     postprocess_hdr(fb_hdr_host, fb, width, height)
-    t = _phase_time("postprocess", t)
+    t = _phase_time("postprocess (srgb/tonemapper on CPU)", t)
     # add postprocess time to render time for more accurate "total time to final image" stat
     render_time += t - t_bvh_end
 
