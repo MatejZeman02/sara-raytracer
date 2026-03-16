@@ -44,6 +44,7 @@ The meassurements assume the data is already on gpu.
 > Dimensions per machine:
 > - 1440**2 on local rtx3070 mobile.
 > - 5760**2 on remote A100 on cluster.
+> - The scenes are ussualy 5 units (blender meters) tall.
 
 
 ## Performance Log:

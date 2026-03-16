@@ -4,6 +4,7 @@ numpy # standard for programming in python
 numba # cuda 'compiler'
 pybind11 # tiny obj loader bindings
 pillow # png support
+oidn # AI Denoiser
 
 # optionally with conda:
 # ncu

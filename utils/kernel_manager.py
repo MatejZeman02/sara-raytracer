@@ -14,6 +14,7 @@ class KernelManager:
         self.kernel = kernel_func
         self.arg_names = list(inspect.signature(kernel_func).parameters.keys())
         assert len(self.arg_names) > 0
+        self.dimensions = None
 
     def _resolve_args(self, local_vars):
         """maps local variables and handles automatic transfers and precision enforcement."""
@@ -62,6 +63,7 @@ class KernelManager:
         if DEVICE == "cpu":
             # direct call triggers njit compilation
             # change resolution to 1x1
+            self.dimensions = (local_vars["width"], local_vars["height"])
             local_vars["width"] = 1
             local_vars["height"] = 1
 
@@ -81,10 +83,15 @@ class KernelManager:
 
         note: if args previously transferred to gpu, this timing will only include kernel execution.
         """
+        if DEVICE == "cpu":
+            # TODO: needed?
+            # ensure dimensions are set for cpu path
+            assert self.dimensions is not None, "precompile_run must be called before run on CPU"
+            data_context["width"], data_context["height"] = self.dimensions
         args = self._resolve_args(data_context)
 
         t0 = time.perf_counter()
-        if DEVICE == "cpu":
+        if DEVICE == "cpu":            
             # cpu path: direct call, grid and block are ignored
             self.kernel(*args)
         else:

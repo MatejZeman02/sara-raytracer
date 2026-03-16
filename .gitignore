@@ -1,3 +1,6 @@
+# ignore ppm, since it is too big and not useful
+*.ppm
+
 # compiled C extensions
 *.so
 
