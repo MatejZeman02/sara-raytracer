@@ -83,8 +83,12 @@ def postprocess_hdr(fb_hdr, out, width, height):
         for x in range(width):
             for c in range(3):
                 # check for NaNs or negative values
-                assert fb_hdr[y, x, c] >= ZERO, f"Negative color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
-                assert fb_hdr[y, x, c] == fb_hdr[y, x, c], f"NaN color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
+                assert (
+                    fb_hdr[y, x, c] >= ZERO
+                ), f"Negative color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
+                assert (
+                    fb_hdr[y, x, c] == fb_hdr[y, x, c]
+                ), f"NaN color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
                 v = fb_hdr[y, x, c]  # channel_value
                 # ACES Narkowicz approximation (matches aces_narkowicz_tonemap)
                 v = (v * (float32(2.51) * v + float32(0.03))) / (

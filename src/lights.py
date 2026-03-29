@@ -90,7 +90,7 @@ def sample_area_light(
     # discrete uniform selection over all emissive triangles
     tri_sel = int32(r0 * float32(num_emissive))
     if tri_sel >= num_emissive:
-        tri_sel = num_emissive - 1 # r0 is near 1.0
+        tri_sel = num_emissive - 1  # r0 is near 1.0
     light_tri_idx = emissive_tris[tri_sel]
     a, b, c = get_tri_verts(triangles, light_tri_idx)
 

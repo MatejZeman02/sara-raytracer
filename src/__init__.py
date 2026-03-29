@@ -250,7 +250,7 @@ def save_image(fb, output_path):
     # turned off for now...
     # save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
-    EXT = ".png"
+    EXT = ".jpg"
     img.save(output_path + EXT)
     print(f"Click to see the result onto: {output_path}{EXT}")
 
