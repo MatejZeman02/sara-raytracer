@@ -79,22 +79,53 @@ def count_f64_in_ptx():
 
 def load_or_build_scene(json_file, cache_file, t):
     """load scene from cache or build bvh from scratch."""
+    required_cache_keys = (
+        "bvh_nodes",
+        "triangles",
+        "tri_normals",
+        "tri_uvs",
+        "mat_indices",
+        "materials",
+        "mat_diffuse_tex_ids",
+        "diffuse_textures",
+        "tex_widths",
+        "tex_heights",
+    )
+
+    can_use_cache = False
     if USE_BVH_CACHE and os.path.exists(cache_file):
         cache = np.load(cache_file)
+        can_use_cache = all(k in cache.files for k in required_cache_keys)
+    if can_use_cache:
         bvh_nodes = cache["bvh_nodes"]
         triangles = cache["triangles"]
         tri_normals = cache["tri_normals"]
+        tri_uvs = cache["tri_uvs"]
         mat_indices = cache["mat_indices"]
         materials = cache["materials"]
+        mat_diffuse_tex_ids = cache["mat_diffuse_tex_ids"]
+        diffuse_textures = cache["diffuse_textures"]
+        tex_widths = cache["tex_widths"]
+        tex_heights = cache["tex_heights"]
         light_data, cam_data, _ = load_light_cam_data(json_file)
     else:
-        triangles, tri_normals, mat_indices, materials, light_data, cam_data = (
-            load_scene(json_file)
-        )
+        (
+            triangles,
+            tri_normals,
+            tri_uvs,
+            mat_indices,
+            materials,
+            mat_diffuse_tex_ids,
+            diffuse_textures,
+            tex_widths,
+            tex_heights,
+            light_data,
+            cam_data,
+        ) = load_scene(json_file)
         assert len(triangles) > 0
 
-        bvh_nodes, triangles, tri_normals, mat_indices = build_bvh(
-            triangles, tri_normals, mat_indices
+        bvh_nodes, triangles, tri_normals, tri_uvs, mat_indices = build_bvh(
+            triangles, tri_normals, tri_uvs, mat_indices
         )
 
         np.savez(
@@ -102,15 +133,25 @@ def load_or_build_scene(json_file, cache_file, t):
             bvh_nodes=bvh_nodes,
             triangles=triangles,
             tri_normals=tri_normals,
+            tri_uvs=tri_uvs,
             mat_indices=mat_indices,
             materials=materials,
+            mat_diffuse_tex_ids=mat_diffuse_tex_ids,
+            diffuse_textures=diffuse_textures,
+            tex_widths=tex_widths,
+            tex_heights=tex_heights,
         )
         t = _phase_time("bvh build", t)
     return (
         triangles,
         tri_normals,
+        tri_uvs,
         mat_indices,
         materials,
+        mat_diffuse_tex_ids,
+        diffuse_textures,
+        tex_widths,
+        tex_heights,
         light_data,
         cam_data,
         bvh_nodes,
@@ -264,15 +305,20 @@ def main():
     height = width
     assert width > 0
 
-    json_file = os.path.join(project_root, "scenes", "box-scaled", "setup.json")
+    json_file = os.path.join(project_root, "scenes", "box-advanced", "setup.json")
     cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
     cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
 
     (
         triangles,
         tri_normals,
+        tri_uvs,
         mat_indices,
         materials,
+        mat_diffuse_tex_ids,
+        diffuse_textures,
+        tex_widths,
+        tex_heights,
         light_data,
         cam_data,
         bvh_nodes,

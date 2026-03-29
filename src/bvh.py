@@ -245,12 +245,13 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
     return nodes_used
 
 
-def build_bvh(triangles, tri_normals, mat_indices):
+def build_bvh(triangles, tri_normals, tri_uvs, mat_indices):
     """
     python wrapper that initializes memory and runs the jit builder
     """
     assert len(triangles) == len(mat_indices)
     assert len(triangles) == len(tri_normals)
+    assert len(triangles) == len(tri_uvs)
     assert len(triangles) > 0
 
     centroids = np.mean(triangles, axis=1).astype(np.float32)
@@ -265,6 +266,7 @@ def build_bvh(triangles, tri_normals, mat_indices):
     final_nodes = nodes[:nodes_used]
     final_tris = triangles[tri_ids]
     final_norms = tri_normals[tri_ids]
+    final_uvs = tri_uvs[tri_ids]
     final_mats = mat_indices[tri_ids]
 
-    return final_nodes, final_tris, final_norms, final_mats
+    return final_nodes, final_tris, final_norms, final_uvs, final_mats

@@ -32,6 +32,7 @@ PYBIND11_MODULE(tinyobjloader_py, m)
 
               std::vector<int> v_indices;
               std::vector<int> n_indices;
+              std::vector<int> t_indices;
               std::vector<int> material_ids;
 
               // loop over shapes
@@ -52,6 +53,7 @@ PYBIND11_MODULE(tinyobjloader_py, m)
                           tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
                           v_indices.push_back(idx.vertex_index);
                           n_indices.push_back(idx.normal_index);
+                          t_indices.push_back(idx.texcoord_index);
                       }
 
                       // get material index for this face
@@ -65,6 +67,7 @@ PYBIND11_MODULE(tinyobjloader_py, m)
               // pack materials into flat array of 14 floats
               size_t m_size = std::max<size_t>(1, materials.size());
               std::vector<float> mat_array(m_size * 14, 0.0f);
+              std::vector<std::string> diffuse_texnames(m_size, "");
 
               for (size_t i = 0; i < materials.size(); i++)
               {
@@ -86,9 +89,19 @@ PYBIND11_MODULE(tinyobjloader_py, m)
                   dst[11] = m.transmittance[1];
                   dst[12] = m.transmittance[2];
                   dst[13] = m.ior;
+                  diffuse_texnames[i] = m.diffuse_texname;
               }
 
-              // return tuple of raw data including normals
-              return py::make_tuple(attrib.vertices, attrib.normals, v_indices, n_indices, material_ids, mat_array);
+              // return tuple of raw data including UVs and diffuse texture names
+              return py::make_tuple(
+                  attrib.vertices,
+                  attrib.normals,
+                  attrib.texcoords,
+                  v_indices,
+                  n_indices,
+                  t_indices,
+                  material_ids,
+                  mat_array,
+                  diffuse_texnames);
           });
 }

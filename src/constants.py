@@ -33,6 +33,7 @@ MAT_TRANSMISSION_R = 10
 MAT_TRANSMISSION_G = 11
 MAT_TRANSMISSION_B = 12
 MAT_IOR = 13
+NO_TEXTURE = -1
 
 # BVH node layout indices (columns in bvh_nodes array)
 BVH_MIN_X = 0

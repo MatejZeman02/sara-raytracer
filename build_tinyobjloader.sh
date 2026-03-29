@@ -1,8 +1,8 @@
 #!/bin/bash
-rm -rf utils/build
+set -e
 
-# get Python version from argument or default to python3.14
-PYTHON_CMD="${1:-python3.14}"
+# get Python from argument or default to current environment's python
+PYTHON_CMD="${1:-python}"
 
 # Verify Python is available
 if ! command -v "$PYTHON_CMD" &> /dev/null; then
@@ -23,7 +23,7 @@ fi
 PYBIND11_CMAKE_DIR=$("$PYTHON_CMD" -m pybind11 --cmakedir)
 
 # pass path to CMake via -Dpybind11_DIR
-cmake -S utils -B utils/build -Dpybind11_DIR="$PYBIND11_CMAKE_DIR"
+cmake -S utils -B utils/build -Dpybind11_DIR="$PYBIND11_CMAKE_DIR" -DPYBIND11_FINDPYTHON=ON -DPython_EXECUTABLE="$(command -v "$PYTHON_CMD")"
 
 cmake --build utils/build
 

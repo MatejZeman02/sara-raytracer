@@ -28,7 +28,6 @@ Tf 1.0 1.0 1.0
 Ni 2.4
 d 1.000000
 illum 3
-map_Kd d_matreska.png
 
 newmtl back_wall
 Ns 745.0
@@ -38,6 +37,7 @@ Ke 0.0 0.0 0.0
 Ni 1.50
 d 1.0
 illum 3
+map_Kd brick_diffuse.png
 
 newmtl ceiling
 Ns 10.0

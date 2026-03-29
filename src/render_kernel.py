@@ -46,8 +46,13 @@ from rng import rand_float32
 def render_pixel(
     triangles,
     tri_normals,
+    tri_uvs,
     mat_indices,
     materials,
+    mat_diffuse_tex_ids,
+    diffuse_textures,
+    tex_widths,
+    tex_heights,
     bvh_nodes,
     use_bvh,
     p00,
@@ -192,7 +197,21 @@ def render_pixel(
 
             # compute and add direct light to final color
             direct_color = compute_lit_color(
-                materials, mat_idx, weighted_emission, n, v_vec, d_l, shadowed
+                materials,
+                mat_idx,
+                hit_idx,
+                hit_u,
+                hit_v,
+                tri_uvs,
+                mat_diffuse_tex_ids,
+                diffuse_textures,
+                tex_widths,
+                tex_heights,
+                weighted_emission,
+                n,
+                v_vec,
+                d_l,
+                shadowed,
             )
             final_r += thr_r * direct_color[0]
             final_g += thr_g * direct_color[1]
@@ -250,8 +269,13 @@ if DEVICE == "cpu":
     def render_kernel(
         triangles,
         tri_normals,
+        tri_uvs,
         mat_indices,
         materials,
+        mat_diffuse_tex_ids,
+        diffuse_textures,
+        tex_widths,
+        tex_heights,
         bvh_nodes,
         use_bvh,
         p00,
@@ -283,8 +307,13 @@ if DEVICE == "cpu":
                 render_pixel(
                     triangles,
                     tri_normals,
+                    tri_uvs,
                     mat_indices,
                     materials,
+                    mat_diffuse_tex_ids,
+                    diffuse_textures,
+                    tex_widths,
+                    tex_heights,
                     bvh_nodes,
                     use_bvh,
                     p00,
@@ -309,8 +338,13 @@ elif DEVICE == "gpu":
     def render_kernel(
         triangles,
         tri_normals,
+        tri_uvs,
         mat_indices,
         materials,
+        mat_diffuse_tex_ids,
+        diffuse_textures,
+        tex_widths,
+        tex_heights,
         bvh_nodes,
         use_bvh,
         p00,
@@ -335,8 +369,13 @@ elif DEVICE == "gpu":
         render_pixel(
             triangles,
             tri_normals,
+            tri_uvs,
             mat_indices,
             materials,
+            mat_diffuse_tex_ids,
+            diffuse_textures,
+            tex_widths,
+            tex_heights,
             bvh_nodes,
             use_bvh,
             p00,
