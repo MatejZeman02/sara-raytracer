@@ -32,6 +32,7 @@ from .settings import (
     RENDER_NON_BVH_STATS,
     USE_BVH_CACHE,
     DENOISE,
+    PRINT_STATS,
 )
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
@@ -139,6 +140,8 @@ def allocate_buffers(width, height):
 
 def print_statistics(stats, render_time, total_triangles, is_ds=True):
     """calculate and print advanced rendering statistics with a focus on readability and ratios."""
+    if not PRINT_STATS:
+        return
     assert stats.ndim == 3
     assert stats.shape[2] == 5
     assert render_time >= 0.0
@@ -247,8 +250,9 @@ def save_image(fb, output_path):
     # turned off for now...
     # save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
-    img.save(output_path + ".jpg")
-    print(f"Click to see the result onto: {output_path}.jpg")
+    EXT = ".png"
+    img.save(output_path + EXT)
+    print(f"Click to see the result onto: {output_path}{EXT}")
 
 
 def main():
@@ -260,7 +264,7 @@ def main():
     height = width
     assert width > 0
 
-    json_file = os.path.join(project_root, "scenes", "box-advanced", "setup.json")
+    json_file = os.path.join(project_root, "scenes", "box-scaled", "setup.json")
     cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
     cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
 
@@ -317,7 +321,7 @@ def main():
         # reallocate buffers for the actual run
         fb_hdr, out_stats = allocate_buffers(width, height)
 
-    use_bvh = True
+    use_bvh = False
     if DEVICE == "gpu":
         cuda.profile_start()
     t_bvh_start = manager.run(grid, threads, locals())

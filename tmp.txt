@@ -1,0 +1,9 @@
+Runs on device: CPU
+[timing] init python         :    1.27 s
+[timing] jit compile run     :    3.05 s
+[timing] render (with ds)    :    0.04 s (24.0 FPS)
+[timing] copy hdr to host    :    0.00 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.79 s
+Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.png
+
+[timing] total (+-)          :    5.16 s

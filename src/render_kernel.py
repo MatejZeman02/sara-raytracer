@@ -114,6 +114,7 @@ def render_pixel(
                 out_stats[y, x, SECONDARY_RAY] += 1  # one more secondary ray
 
             if hit_idx == -1:
+                # print("*")
                 final_r += thr_r * MISS_COLOR_F[0]
                 final_g += thr_g * MISS_COLOR_F[1]
                 final_b += thr_b * MISS_COLOR_F[2]
@@ -245,7 +246,7 @@ def render_pixel(
 
 if DEVICE == "cpu":
     # cpu entry point: parallel rows, serial columns
-    @njit(parallel=True, fastmath=True)
+    @njit(parallel=False, fastmath=False)
     def render_kernel(
         triangles,
         tri_normals,
@@ -268,10 +269,16 @@ if DEVICE == "cpu":
         """cpu entry point, loops over all pixels with parallel rows"""
         assert width > 0
         assert height > 0
+
+        DEBUG_PIXELS = [(440, 164), (434, 163), (250, 250)]
         for y in prange(height):
             for x in range(width):
+                # if (x, y) not in DEBUG_PIXELS:
+                #     continue
+                # print("inspecting pixel x:", x, "y:", y)
                 stack = empty(STACK_SIZE, dtype=np.int32)
-                stack[0] = np.int32(0)  # set root
+                # set root
+                stack[0] = np.int32(0)  # FIXME: not needed?
                 thread_idx = y * width + x
                 render_pixel(
                     triangles,
@@ -297,8 +304,8 @@ if DEVICE == "cpu":
 
 elif DEVICE == "gpu":
     # gpu entry point: one cuda thread per pixel
-    # @cuda.jit(fastmath=True, lineinfo=True) # lineinfo enables profiler line mapping
-    @cuda.jit(fastmath=True)
+    # @cuda.jit(fastmath=False, lineinfo=True) # lineinfo enables profiler line mapping
+    @cuda.jit(fastmath=False)
     def render_kernel(
         triangles,
         tri_normals,

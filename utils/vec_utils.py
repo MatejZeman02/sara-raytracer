@@ -92,7 +92,7 @@ def cross(a, b):
     )
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def distance(a, b):
 #     """Euclidean distance between two 3D points."""
 #     return length(sub(a, b))
@@ -104,13 +104,13 @@ def neg(a):
     return (float32(-a[0]), float32(-a[1]), float32(-a[2]))
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def abs(a):
 #     """Element-wise absolute value of a vector."""
 #     return (abs(a[0]), abs(a[1]), abs(a[2]))
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def clamp(a, min_val, max_val):
 #     """Element-wise clamp of a vector."""
 #     return (
@@ -120,31 +120,31 @@ def neg(a):
 #     )
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def mix(a, b, t):
 #     """Linear interpolation between vectors a and b by t."""
 #     return add(mul(a, ONE - t), mul(b, t))
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def floor(a):
 #     """Element-wise floor of a vector."""
 #     return (math.floor(a[0]), math.floor(a[1]), math.floor(a[2]))
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def ceil(a):
 #     """Element-wise ceil of a vector."""
 #     return (math.ceil(a[0]), math.ceil(a[1]), math.ceil(a[2]))
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def min(a, b):
 #     """shorter vector between a and b from the origin."""
 #     return length(a) if length(a) < length(b) else length(b)
 
 
-# @cuda.jit(device=True, inline=True, fastmath=True)
+# @cuda.jit(device=True, inline=True, fastmath=False)
 # def max(a, b):
 #     """longer vector between a and b from the origin."""
 #     return length(a) if length(a) > length(b) else length(b)

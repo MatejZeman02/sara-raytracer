@@ -33,24 +33,17 @@ class KernelManager:
                 if hasattr(val, "copy_to_host"):
                     args.append(val)
                 elif isinstance(val, np.ndarray):
-                    if val.dtype == np.float64:
-                        val = val.astype(np.float32)
                     gpu_val = cuda.to_device(val)
                     # update local scope to avoid re-uploading next time
                     local_vars[search_name] = gpu_val
                     args.append(gpu_val)
-                elif isinstance(val, (float, np.float64)):
-                    args.append(np.float32(val))
                 else:
                     args.append(val)
             else:
                 # cpu path: keep as numpy arrays, enforce float32 precision
                 if isinstance(val, np.ndarray):
-                    if val.dtype == np.float64:
-                        val = val.astype(np.float32)
-                        local_vars[search_name] = val
                     args.append(val)
-                elif isinstance(val, (float, np.float64)):
+                elif isinstance(val, float):
                     args.append(np.float32(val))
                 else:
                     args.append(val)
@@ -86,12 +79,14 @@ class KernelManager:
         if DEVICE == "cpu":
             # TODO: needed?
             # ensure dimensions are set for cpu path
-            assert self.dimensions is not None, "precompile_run must be called before run on CPU"
+            assert (
+                self.dimensions is not None
+            ), "precompile_run must be called before run on CPU"
             data_context["width"], data_context["height"] = self.dimensions
         args = self._resolve_args(data_context)
 
         t0 = time.perf_counter()
-        if DEVICE == "cpu":            
+        if DEVICE == "cpu":
             # cpu path: direct call, grid and block are ignored
             self.kernel(*args)
         else:

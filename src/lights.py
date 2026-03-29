@@ -138,7 +138,7 @@ def sample_area_light(
 
     # monte carlo weight for next-event estimation:
     #   pdf  = 1 / (num_emissive * area)   [uniform discrete + uniform area sampling]
-    #   G    = cos_theta_light / dist_sq   [geometry term: area measure to solid angle]
+    #   G    = cos_theta_light / dist_sq
     #   weight = G / pdf = cos_theta_light * num_emissive * area / dist_sq
     weight = cos_theta_light * float32(num_emissive) * area / dist_sq
 

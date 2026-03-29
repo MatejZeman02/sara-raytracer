@@ -2,7 +2,7 @@ from numpy import float32, uint8
 from numba import njit, prange
 from utils import device_jit
 from utils.vec_utils import vec3, linear_to_srgb
-from constants import ONE, HALF, UINT8_MAX_F, UINT8_MAX_I, ZERO, MISS_GRAY
+from constants import ONE, HALF, UINT8_MAX_F, UINT8_MAX_I, ZERO
 
 
 @device_jit
@@ -65,7 +65,7 @@ def write_hdr_to_fb(cr, cg, cb, fb_hdr, x, y):
     fb_hdr[y, x, 2] = cb
 
 
-@njit(parallel=True, fastmath=True)
+@njit(parallel=False, fastmath=False)
 def postprocess_hdr(fb_hdr, out, width, height):
     """apply ACES filmic tonemap + sRGB gamma to denoised HDR buffer, write uint8.
 
@@ -82,6 +82,9 @@ def postprocess_hdr(fb_hdr, out, width, height):
     for y in prange(height):
         for x in range(width):
             for c in range(3):
+                # check for NaNs or negative values
+                assert fb_hdr[y, x, c] >= ZERO, f"Negative color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
+                assert fb_hdr[y, x, c] == fb_hdr[y, x, c], f"NaN color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
                 v = fb_hdr[y, x, c]  # channel_value
                 # ACES Narkowicz approximation (matches aces_narkowicz_tonemap)
                 v = (v * (float32(2.51) * v + float32(0.03))) / (

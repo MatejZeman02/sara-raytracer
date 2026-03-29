@@ -11,6 +11,7 @@ def compute_inv_dir(dir_vec):
     inv_x = ONE / (dir_vec[0] + DENOMINATOR_EPSILON)
     inv_y = ONE / (dir_vec[1] + DENOMINATOR_EPSILON)
     inv_z = ONE / (dir_vec[2] + DENOMINATOR_EPSILON)
+
     return vec3(inv_x, inv_y, inv_z)
 
 
@@ -27,6 +28,11 @@ def compute_primary_ray(p00, qw, qh, origin, x, y, jx, jy):
     ray_dir = normalize(vec3(dir_x, dir_y, dir_z))
     ray_origin = vec3(origin[0], origin[1], origin[2])
     inv_rd = compute_inv_dir(ray_dir)  # dir^-1
+    # check for NaN
+    assert ray_dir[0] == ray_dir[0]
+    assert ray_dir[1] == ray_dir[1]
+    assert ray_dir[2] == ray_dir[2]
+
     return ray_origin, ray_dir, inv_rd
 
 

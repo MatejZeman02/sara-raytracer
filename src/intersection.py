@@ -11,6 +11,13 @@ from constants import DET_EPSILON, INFINITY_VEC, ZERO, ONE
 def intersect_aabb(ro, inv_rd, bmin, bmax):
     """Ray-AABB intersection test using the slab method."""
     # calculate intersection t-values for all axes
+    assert inv_rd[0] != 0.0
+    assert inv_rd[1] != 0.0
+    assert inv_rd[2] != 0.0
+    # check for NaN
+    assert inv_rd[0] == inv_rd[0]
+    assert inv_rd[1] == inv_rd[1]
+    assert inv_rd[2] == inv_rd[2]
     t1 = mul_vec(sub(bmin, ro), inv_rd)  # near_t_per_axis
     t2 = mul_vec(sub(bmax, ro), inv_rd)  # far_t_per_axis
 
