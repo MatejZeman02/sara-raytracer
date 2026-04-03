@@ -65,7 +65,7 @@ def write_hdr_to_fb(cr, cg, cb, fb_hdr, x, y):
     fb_hdr[y, x, 2] = cb
 
 
-@njit(parallel=False, fastmath=False)
+@njit(parallel=True, fastmath=True)
 def postprocess_hdr(fb_hdr, out, width, height):
     """apply ACES filmic tonemap + sRGB gamma to denoised HDR buffer, write uint8.
 

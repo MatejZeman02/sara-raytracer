@@ -283,11 +283,14 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
         f"  Avg ops per ray:      {tests_per_ray:.1f}\n"
         f"  Avg nodes per ray:    {nodes_per_ray:.1f} (Ideal O(logN) ~ {optimal_log_nodes:.1f})\n"
         f"{SEP_DASH}\n"
-        f"PER_HIT-PIXEL LOAD (min / mean / max)\n"
-        f"  Rays calls:        {np.min(total_rays_per_px[hit_mask])} / {np.mean(total_rays_per_px[hit_mask]):.1f} / {np.max(total_rays_per_px[hit_mask])}\n"
-        f"  Incidence tests:   {np.min(total_inc_per_px[hit_mask])} / {np.mean(total_inc_per_px[hit_mask]):.1f} / {np.max(total_inc_per_px[hit_mask])}\n"
-        f"{SEP_EQUAL}"
     )
+    if len(hit_incidences):
+        print(
+            f"PER_HIT-PIXEL LOAD (min / mean / max)\n"
+            f"  Rays calls:        {np.min(total_rays_per_px[hit_mask])} / {np.mean(total_rays_per_px[hit_mask]):.1f} / {np.max(total_rays_per_px[hit_mask])}\n"
+            f"  Incidence tests:   {np.min(total_inc_per_px[hit_mask])} / {np.mean(total_inc_per_px[hit_mask]):.1f} / {np.max(total_inc_per_px[hit_mask])}\n"
+            f"{SEP_EQUAL}"
+        )
 
 
 def save_image(fb, output_path):
@@ -296,7 +299,7 @@ def save_image(fb, output_path):
     # fb is always a host numpy uint8 array (produced by postprocess_hdr)
     host_fb = fb.copy_to_host() if hasattr(fb, "copy_to_host") else fb
 
-    # turned off for now...
+    # ppm turned off for now...
     # save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
     EXT = ".jpg"
@@ -356,7 +359,7 @@ def main():
     rng_states = create_rng_states(width * height, seed=SEED)
 
     manager = KernelManager(render_kernel)
-    use_bvh = True
+    use_bvh = False
     manager.precompile_run(locals())
 
     threads = (BLOCK_THREADS, BLOCK_THREADS)
@@ -375,7 +378,7 @@ def main():
         # reallocate buffers for the actual run
         fb_hdr, out_stats = allocate_buffers(width, height)
 
-    use_bvh = True
+    use_bvh = False
     if DEVICE == "gpu":
         cuda.profile_start()
     t_bvh_start = manager.run(grid, threads, locals())

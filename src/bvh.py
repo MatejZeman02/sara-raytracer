@@ -267,9 +267,7 @@ def build_bvh(triangles, tri_normals, tri_uvs, mat_indices):
     max_nodes = len(triangles) * 2
     nodes = np.zeros((max_nodes, BINS), dtype=np.float32)
 
-    print("Before build_bvh_jit")
     nodes_used = build_bvh_jit(triangles, centroids, tri_ids, nodes)
-    print("After build_bvh_jit")
 
     # trim arrays and reorder geometry according to bvh leaves
     final_nodes = nodes[:nodes_used]

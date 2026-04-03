@@ -20,9 +20,9 @@ d 1.0
 illum 3
 
 newmtl Matryoshka_doll
-Ns 250.0
+Ns 0.0
 Kd 1.0 1.0 1.0
-Ks 0.5 0.5 0.5
+Ks 0.0 0.0 0.0
 Ke 0.0 0.0 0.0
 Tf 1.0 1.0 1.0
 Ni 2.4
@@ -30,9 +30,9 @@ d 1.000000
 illum 3
 
 newmtl back_wall
-Ns 745.0
+Ns 0.0
 Kd 0.763675 0.763675 0.763675
-Ks 0.5 0.5 0.5
+Ks 0.0 0.0 0.0
 Ke 0.0 0.0 0.0
 Ni 1.50
 d 1.0

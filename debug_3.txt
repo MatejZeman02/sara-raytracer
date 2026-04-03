@@ -1,2 +1,0 @@
-Terminated                 python src/main.py
-ERROR conda.cli.main_run:execute(142): `conda run python src/main.py` failed. (See above for error)

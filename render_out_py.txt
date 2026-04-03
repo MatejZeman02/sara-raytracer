@@ -1,0 +1,39 @@
+Importing __init__.py
+Importing __init__.py
+Runs on device: CPU
+[timing] init python         :    1.25 s
+[timing] bvh build           :    4.35 s
+[timing] jit compile run     :    0.01 s
+Traceback (most recent call last):
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/main.py", line 23, in <module>
+    _resolve_main()()
+    ~~~~~~~~~~~~~~~^^
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/__init__.py", line 384, in main
+    t_bvh_start = manager.run(grid, threads, locals())
+  File "/home/bubakulus/work/prog/PG1/zemanm40/utils/kernel_manager.py", line 91, in run
+    self.kernel(*args)
+    ~~~~~~~~~~~^^^^^^^
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/render_kernel.py", line 307, in render_kernel
+    render_pixel(
+    ~~~~~~~~~~~~^
+        triangles,
+        ^^^^^^^^^^
+    ...<22 lines>...
+        thread_idx,
+        ^^^^^^^^^^^
+    )
+    ^
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/render_kernel.py", line 98, in render_pixel
+    closest_t, hit_idx, hit_u, hit_v, tri_tests, node_tests = get_closest_hit(
+                                                              ~~~~~~~~~~~~~~~^
+        triangles,
+        ^^^^^^^^^^
+    ...<6 lines>...
+        is_primary,
+        ^^^^^^^^^^^
+    )
+    ^
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/traversal.py", line 98, in get_closest_hit
+    if RAY_EPSILON < t < closest_t:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

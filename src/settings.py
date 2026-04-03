@@ -16,4 +16,4 @@ MAX_BOUNCES = 16  # more than 32 is overkill, but counting on attenuation
 SAMPLES = 16
 DENOISE = True
 RENDER_NON_BVH_STATS = False
-PRINT_STATS = True
+PRINT_STATS = False

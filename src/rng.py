@@ -16,14 +16,11 @@ if DEVICE == "cpu":
     @device_jit
     def rand_float32(rng_states, idx):
         """xorshift32 prng: advance state in-place and return a uniform float in [0, 1)."""
-        # read current state for this thread
-        x = rng_states[idx]
-        # three xorshift rounds (Marsaglia 2003 parameters)
-        x = x ^ (x << uint32(13))
-        x = x ^ (x >> uint32(17))
-        x = x ^ (x << uint32(5))
+        x = uint32(rng_states[idx])
+        x ^= uint32((x << uint32(13)) & uint32(0xFFFFFFFF))
+        x ^= uint32((x >> uint32(17)) & uint32(0xFFFFFFFF))
+        x ^= uint32((x << uint32(5)) & uint32(0xFFFFFFFF))
         rng_states[idx] = x
-        # map uint32 range [0, 2^32) to [0, 1) by multiplying by 1/2^32
         return float32(x) * float32(2.3283064365386963e-10)
 
     def create_rng_states(n, seed=42):

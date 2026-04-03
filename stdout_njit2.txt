@@ -1,0 +1,11 @@
+Importing __init__.py
+Importing __init__.py
+Runs on device: CPU
+[timing] init python         :    1.26 s
+[timing] jit compile run     :    3.45 s
+[timing] render (with ds)    :    0.00 s (4948.3 FPS)
+[timing] copy hdr to host    :    0.00 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.65 s
+Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.jpg
+
+[timing] total (+-)          :    5.36 s

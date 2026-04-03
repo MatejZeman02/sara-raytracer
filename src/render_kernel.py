@@ -334,7 +334,7 @@ if DEVICE == "cpu":
 elif DEVICE == "gpu":
     # gpu entry point: one cuda thread per pixel
     # @cuda.jit(fastmath=False, lineinfo=True) # lineinfo enables profiler line mapping
-    @cuda.jit(fastmath=False)
+    @cuda.jit(fastmath=True)
     def render_kernel(
         triangles,
         tri_normals,
