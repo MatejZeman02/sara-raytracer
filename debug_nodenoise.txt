@@ -1,0 +1,37 @@
+Runs on device: GPU
+[timing] init python         :    1.22 s
+[timing] init cuda + alloc   :    1.91 s
+[timing] jit compile run     :    2.30 s
+[timing] render (with ds)    :   27.68 s (0.0 FPS)
+[timing] copy hdr to host    :    0.00 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.71 s
+
+=================================================================
+  STATISTICS (DS on GPU)
+=================================================================
+Resolution:             1440 x 1440 (2,073,600 pixels)
+Render time:            28.392 s
+Throughput (whole run): 0.50 MRays/s
+-----------------------------------------------------------------
+RAY DISTRIBUTION (Total: 14,130,762)
+  Primary:               14.7%  (2,073,600)
+  Secondary:             44.6%  (6,307,415)
+  Shadow:                40.7%  (5,749,747)
+-----------------------------------------------------------------
+WORKLOAD DISTRIBUTION
+  Sky (1 ray):           22.7%  (471,704)
+  Standard geometry:     71.6%  (1,484,764)
+  Hard (>> avg tests):    5.6%  (117,132)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 74,257,659,548)
+  Node/Triangle ratio:  0.0 : 1
+  Avg ops per ray:      5255.0
+  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 12.4)
+-----------------------------------------------------------------
+PER_HIT-PIXEL LOAD (min / mean / max)
+  Rays calls:        2 / 8.5 / 32
+  Incidence tests:   10984 / 44738.9 / 173037
+=================================================================
+Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.jpg
+
+[timing] total (+-)          :   33.91 s

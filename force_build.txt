@@ -1,0 +1,28 @@
+Starting main.py
+Starting main.py
+Importing __init__.py
+Importing __init__.py
+Runs on device: CPU
+[timing] init python         :    1.27 s
+[timing] jit compile run     :    3.61 s
+[timing] render (with ds)    :    0.10 s (9.9 FPS)
+[timing] copy hdr to host    :    0.00 s
+[timing] oidn denoise        :    0.12 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.75 s
+Traceback (most recent call last):
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/main.py", line 29, in <module>
+    _resolve_main()()
+    ~~~~~~~~~~~~~~~^^
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/__init__.py", line 402, in main
+    print_statistics(stats, render_time, len(triangles))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bubakulus/work/prog/PG1/zemanm40/src/__init__.py", line 287, in print_statistics
+    f"  Rays calls:        {np.min(total_rays_per_px[hit_mask])} / {np.mean(total_rays_per_px[hit_mask]):.1f} / {np.max(total_rays_per_px[hit_mask])}\n"
+                            ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/bubakulus/miniconda3/envs/raytracer/lib/python3.14/site-packages/numpy/_core/fromnumeric.py", line 3302, in min
+    return _wrapreduction(a, np.minimum, 'min', axis, None, out,
+                          keepdims=keepdims, initial=initial, where=where)
+  File "/home/bubakulus/miniconda3/envs/raytracer/lib/python3.14/site-packages/numpy/_core/fromnumeric.py", line 86, in _wrapreduction
+    return ufunc.reduce(obj, axis, dtype, out, **passkwargs)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: zero-size array to reduction operation minimum which has no identity

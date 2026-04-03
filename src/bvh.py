@@ -27,7 +27,7 @@ def get_aabb(triangles, tri_ids, start, end):
     for i in range(start, end):
         t_idx = tri_ids[i]
 
-        # loop over the 3 vertices, unrolling the 3 axes (x, y, z)
+        # FIXME: loop over the 3 vertices, unrolling the 3 axes (x, y, z)
         for j in range(3):
             v_x = triangles[t_idx, j, 0]
             v_y = triangles[t_idx, j, 1]
@@ -68,7 +68,7 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
     """
     assert len(triangles) > 0
 
-    stack = np.zeros((1024, 3), dtype=np.int32)
+    stack = np.zeros((8192, 3), dtype=np.int32)
     stack_ptr = 1
     # packing may not work with numba
     stack[0, 0] = 0
@@ -210,11 +210,18 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
 
         split_idx = left_idx
 
+        # if sah fails to split, just make a leaf
+        if split_idx == start or split_idx == end:
+            nodes[node_idx, BVH_MIN_X : BVH_MIN_Z + 1] = bmin
+            nodes[node_idx, BVH_MAX_X : BVH_MAX_Z + 1] = bmax
+            nodes[node_idx, BVH_LEFT_OR_START] = start
+            nodes[node_idx, BVH_RIGHT_OR_COUNT] = num_tris
+            continue
+
         # allocate children
         left_child = nodes_used
         right_child = nodes_used + 1
         nodes_used += 2
-
         nodes[node_idx, BVH_MIN_X : BVH_MIN_Z + 1] = bmin
         nodes[node_idx, BVH_MAX_X : BVH_MAX_Z + 1] = bmax
         nodes[node_idx, BVH_LEFT_OR_START] = left_child
@@ -260,7 +267,9 @@ def build_bvh(triangles, tri_normals, tri_uvs, mat_indices):
     max_nodes = len(triangles) * 2
     nodes = np.zeros((max_nodes, BINS), dtype=np.float32)
 
+    print("Before build_bvh_jit")
     nodes_used = build_bvh_jit(triangles, centroids, tri_ids, nodes)
+    print("After build_bvh_jit")
 
     # trim arrays and reorder geometry according to bvh leaves
     final_nodes = nodes[:nodes_used]

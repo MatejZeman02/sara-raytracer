@@ -1,0 +1,11 @@
+Runs on device: GPU
+[timing] init python         :    1.24 s
+[timing] init cuda + alloc   :    0.16 s
+[timing] jit compile run     :    2.54 s
+[timing] render (with ds)    :    4.73 s (0.2 FPS)
+[timing] copy hdr to host    :    0.01 s
+[timing] oidn denoise        :    1.13 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.90 s
+Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.jpg
+
+[timing] total (+-)          :   10.74 s

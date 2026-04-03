@@ -1,0 +1,10 @@
+--- src/render_kernel.py
++++ src/render_kernel.py
+@@ -321,7 +321,7 @@
+         DEBUG_PIXELS = [(47, 461), (47, 457)]
+         for y in prange(height):
+             for x in range(width):
+-                if False:
++                if (x, y) not in DEBUG_PIXELS:
+                     continue
+                 stack = empty(STACK_SIZE, dtype=np.int32)

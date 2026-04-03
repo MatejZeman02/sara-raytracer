@@ -1,0 +1,15 @@
+Runs on device: CPU
+[timing] init python         :    1.25 s
+[timing] jit compile run     :    3.39 s
+inspecting pixel x: 47 y: 457
+Hit idx is: -1 for pixel 47 457
+inspecting pixel x: 47 y: 461
+Hit idx is: -1 for pixel 47 461
+[timing] render (with ds)    :    0.00 s (313.5 FPS)
+[timing] copy hdr to host    :    0.00 s
+[timing] oidn denoise        :    0.78 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.67 s
+no hits to report
+Click to see the result onto: /home/bubakulus/work/prog/PG1/zemanm40/src/output/output.png
+
+[timing] total (+-)          :    6.14 s

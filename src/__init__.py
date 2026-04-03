@@ -1,3 +1,11 @@
+import sys
+
+print("Importing __init__.py")
+sys.stdout.flush()
+import sys
+
+print("Importing __init__.py")
+sys.stdout.flush()
 """Homework renderer package entrypoint."""
 
 # pylint: disable=too-many-locals, unused-variable, line-too-long
@@ -348,7 +356,7 @@ def main():
     rng_states = create_rng_states(width * height, seed=SEED)
 
     manager = KernelManager(render_kernel)
-    use_bvh = False
+    use_bvh = True
     manager.precompile_run(locals())
 
     threads = (BLOCK_THREADS, BLOCK_THREADS)
@@ -367,7 +375,7 @@ def main():
         # reallocate buffers for the actual run
         fb_hdr, out_stats = allocate_buffers(width, height)
 
-    use_bvh = False
+    use_bvh = True
     if DEVICE == "gpu":
         cuda.profile_start()
     t_bvh_start = manager.run(grid, threads, locals())

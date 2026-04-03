@@ -64,7 +64,7 @@ def get_closest_hit(
                     node_idx, BVH_RIGHT_OR_COUNT
                 ]  # number of triangles for leaves or negative right child
 
-                if data2 > ZERO:
+                if data2 >= ZERO:
                     start = int(data1)
                     count = int(data2)
                     for i in range(start, start + count):
@@ -153,7 +153,7 @@ def is_in_shadow(
             data1 = bvh_nodes[node_idx, BVH_LEFT_OR_START]
             data2 = bvh_nodes[node_idx, BVH_RIGHT_OR_COUNT]
 
-            if data2 > ZERO:
+            if data2 >= ZERO:
                 start = int(data1)
                 count = int(data2)
                 for i in range(start, start + count):
