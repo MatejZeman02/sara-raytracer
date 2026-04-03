@@ -212,8 +212,6 @@ Shrnutí převodu konceptů z CUDA C++ (`nvcc`) do Numby:
 - **V Numbě:** `@cuda.jit(ptxas_options=['-v', '-dlcm=cg'])`
 - **Funkcionalita:** Umožňuje předat specifické flagy přímo do nízkoúrovňového assembleru (např. vypnutí L1 cache nebo výpis využití paměti do terminálu).
 
-***
-
 ### 2. Typy paměti a funkce
 
 - **`__global__` (Main kernel)**
@@ -235,12 +233,36 @@ Shrnutí převodu konceptů z CUDA C++ (`nvcc`) do Numby:
 - **V Numbě:** `l_arr = cuda.local.array(shape, dtype)` uvnitř kernelu.
 - **Funkcionalita:** Privátní pole pro každé vlákno zvlášť. Fyzicky často leží v pomalejší globální paměti (tzv. local memory spill), používá se např. pro lokální zásobník při průchodu stromem (BVH).
 
-
-***
-
-
 ### 3. Makra a podmíněný překlad (`#ifdef`, `#define`)
 
 - **V Numbě:** *Není podpora preprocesoru, používá se standardní Python.*
 - **Jak to funguje:** Numba vyhodnocuje konstanty v době JIT kompilace. Pokud použijete globální proměnnou (např. `DEBUG_MODE = False`) a uvnitř kernelu napíšete `if DEBUG_MODE:`, Numba provede **dead code elimination**. Kód uvnitř bloku se do výsledného PTX/binárního kódu na GPU vůbec nedostane, stejně jako u `#ifdef` v C++.
 
+***
+
+### MTL → Ray Tracer Mapping
+
+| MTL property | Meaning (MTL)                 | Typical ray tracer interpretation  | Notes / pitfalls                                |
+| ------------ | ----------------------------- | ---------------------------------- | ----------------------------------------------- |
+| `Kd`         | Diffuse color (albedo)        | `albedo_diffuse`                   | Directly used in Lambertian term                |
+| `map_Kd`     | Diffuse texture               | `albedo_texture`                   | Sample instead of constant `Kd`                 |
+| `Ks`         | Specular color                | `specular_color` or reflectivity   | Often used as Fresnel base or specular weight   |
+| `Ns`         | Specular exponent (shininess) | `roughness` or `phong_exponent`    | Usually converted: `roughness ≈ sqrt(2/(Ns+2))` |
+| `Ke`         | Emission color                | `emission` / light source radiance | Non-zero → treat as light                       |
+| `Ni`         | Index of refraction           | `ior`                              | Used for refraction (Snell’s law)               |
+| `d`          | Opacity (1 = opaque)          | `opacity` / `alpha`                | If `<1`, enable transparency                    |
+| `Tf`         | Transmission filter (color)   | `transmittance_color`              | Tints refracted rays                            |
+| `illum`      | Illumination model            | shading mode flags                 | Often ignored                                   |
+
+***
+
+#### Critical observations
+
+* `Ns` from Blender can be very large (e.g. 800+)
+  → must be remapped to roughness, otherwise highlights become numerically unstable
+
+* `Ks` is **not physically correct reflectivity**
+  → treat it as a heuristic weight, not energy-conserving
+
+* `Tf` is often misused
+  → if absent, assume white transmission `(1,1,1)`

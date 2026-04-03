@@ -2,9 +2,9 @@
 .github/
 *patch*
 *debug*
+*fix*
 tmp.txt
 tmp
-fix
 
 # ignore ppm, since it is too big and not useful
 *.ppm
