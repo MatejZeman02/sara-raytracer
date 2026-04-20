@@ -1,11 +1,3 @@
-import sys
-
-print("Importing __init__.py")
-sys.stdout.flush()
-import sys
-
-print("Importing __init__.py")
-sys.stdout.flush()
 """Homework renderer package entrypoint."""
 
 # pylint: disable=too-many-locals, unused-variable, line-too-long
@@ -41,6 +33,7 @@ from .settings import (
     USE_BVH_CACHE,
     DENOISE,
     PRINT_STATS,
+    IMG_FORMAT,
 )
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
@@ -302,9 +295,8 @@ def save_image(fb, output_path):
     # ppm turned off for now...
     # save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
-    EXT = ".jpg"
-    img.save(output_path + EXT)
-    print(f"Click to see the result onto: {output_path}{EXT}")
+    img.save(f"{output_path}.{IMG_FORMAT}")
+    print(f"Click to see the result onto: {output_path}.{IMG_FORMAT}")
 
 
 def main():

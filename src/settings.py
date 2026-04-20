@@ -13,7 +13,8 @@ GPU_DIMENSION = 1440
 
 USE_BVH_CACHE = True
 MAX_BOUNCES = 16  # more than 32 is overkill, but counting on attenuation
+IMG_FORMAT = "jpg"
 SAMPLES = 16
-DENOISE = True
+DENOISE = False
 RENDER_NON_BVH_STATS = False
 PRINT_STATS = False

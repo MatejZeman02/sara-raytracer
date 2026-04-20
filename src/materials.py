@@ -9,6 +9,7 @@ from constants import (
     ZERO,
     ONE,
     TWO,
+    DIST_TO_LIGHT_MULT,
     RAY_EPSILON,
     MAT_DIFFUSE_R,
     MAT_DIFFUSE_G,
@@ -105,8 +106,9 @@ def compute_shadowed(
     )
 
     inv_dl = compute_inv_dir(d_l)
-    # shorten the ray target distance to avoid hitting the emissive triangle itself
-    safe_dist = dist_to_light - RAY_EPSILON
+    # shorter ray target distance avoids hitting the emissive triangle itself
+    tmax_guard = max(DIST_TO_LIGHT_MULT * dist_to_light, RAY_EPSILON)
+    safe_dist = dist_to_light - tmax_guard
     assert (
         safe_dist > ZERO
     ), "Light is too close to the surface, increase RAY_EPSILON or move the light further away"
