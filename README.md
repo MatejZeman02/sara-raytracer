@@ -51,53 +51,162 @@ The meassurements assume the data is already on gpu.
 Saved bash rendering on cpu/gpu with/without BVH:
 
 ```bash
+GPU_DIMENSION = 1024
+SCENE_NAME = "dragon"
+SAMPLES = 6
+DENOISE = True
+MAX_BOUNCES = 16
+
+Runs on device: GPU
+[timing] init python         :    1.25 s
+[timing] bvh build           :   12.61 s
+[timing] init cuda + alloc   :    1.89 s
+[timing] jit compile run     :    4.59 s
+[timing] render (no ds)      :  834.62 s
+
 =================================================================
   STATISTICS (No DS on GPU)
 =================================================================
-Resolution:             1440 x 1440 (2,073,600 pixels)
-Render time:            1.521 s
-Throughput (whole run): 10.03 MRays/s
+Resolution:             1024 x 1024 (1,048,576 pixels)
+Render time:            834.617 s
+Throughput (whole run): 0.00 MRays/s
 -----------------------------------------------------------------
-RAY DISTRIBUTION (Total: 15,256,470)
-  Primary:               13.6%  (2,073,600)
-  Secondary:             41.5%  (6,330,843)
-  Shadow:                44.9%  (6,852,027)
+RAY DISTRIBUTION (Total: 4,100,115)
+  Primary:               25.6%  (1,048,576)
+  Secondary:             37.6%  (1,543,298)
+  Shadow:                36.8%  (1,508,241)
 -----------------------------------------------------------------
-BVH EFFICIENCY (Total incidence ops: 80,393,959,126)
+WORKLOAD DISTRIBUTION
+  Sky (1 ray):           24.2%  (254,076)
+  Standard geometry:     70.6%  (740,613)
+  Hard (>> avg tests):    5.1%  (53,887)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 3,339,858,604,073)
   Node/Triangle ratio:  0.0 : 1
-  Avg ops per ray:      5269.5
-  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 12.4)
+  Avg ops per ray:      814576.8
+  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 19.7)
 -----------------------------------------------------------------
-PER-PIXEL LOAD (min / mean / max)
-  Rays calls:        1 / 7.4 / 32
-  Incidence tests:   5492 / 38770.2 / 175744
+
+PER_HIT-PIXEL LOAD (min / mean / max)
+  Rays calls:        2 / 4.8 / 14
+  Incidence tests:   871985 / 3925082.0 / 12198452
 =================================================================
-```
-***
-```bash
+
+[timing] render (with ds)    :  705.01 s (0.0 FPS)
+[timing] copy hdr to host    :    0.00 s
+[timing] oidn denoise        :    0.50 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.92 s
+
 =================================================================
   STATISTICS (DS on GPU)
 =================================================================
-Resolution:             1440 x 1440 (2,073,600 pixels)
-Render time:            0.021 s
-Throughput (whole run): 711.83 MRays/s
+Resolution:             1024 x 1024 (1,048,576 pixels)
+Render time:            706.435 s
+Throughput (whole run): 0.01 MRays/s
 -----------------------------------------------------------------
-RAY DISTRIBUTION (Total: 15,256,481)
-  Primary:               13.6%  (2,073,600)
-  Secondary:             41.5%  (6,330,847)
-  Shadow:                44.9%  (6,852,034)
+RAY DISTRIBUTION (Total: 4,099,810)
+  Primary:               25.6%  (1,048,576)
+  Secondary:             37.6%  (1,543,400)
+  Shadow:                36.8%  (1,507,834)
 -----------------------------------------------------------------
-BVH EFFICIENCY (Total incidence ops: 608,295,264)
-  Node/Triangle ratio:  7.1 : 1
-  Avg ops per ray:      39.9
-  Avg nodes per ray:    34.9 (Ideal O(logN) ~ 12.4)
+WORKLOAD DISTRIBUTION
+  Sky (1 ray):           24.2%  (254,094)
+  Standard geometry:     70.6%  (740,499)
+  Hard (>> avg tests):    5.1%  (53,983)
 -----------------------------------------------------------------
-PER-PIXEL LOAD (min / mean / max)
-  Rays calls:        1 / 7.4 / 32
-  Incidence tests:   1 / 293.4 / 5371
+BVH EFFICIENCY (Total incidence ops: 3,339,708,559,741)
+  Node/Triangle ratio:  0.0 : 1
+  Avg ops per ray:      814600.8
+  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 19.7)
+-----------------------------------------------------------------
+
+PER_HIT-PIXEL LOAD (min / mean / max)
+  Rays calls:        2 / 4.8 / 14
+  Incidence tests:   872065 / 3924962.3 / 12198452
 =================================================================
+
+[timing] total (+-)          : 1561.51 s
 ```
 ***
+```bash
+
+GPU_DIMENSION = 1024
+SCENE_NAME = "bunny"
+SAMPLES = 6
+DENOISE = True
+MAX_BOUNCES = 16
+
+Runs on device: GPU
+[timing] init python         :    1.32 s
+[timing] init cuda + alloc   :    1.90 s
+[timing] jit compile run     :    2.47 s
+[timing] render (no ds)      :   39.62 s
+
+=================================================================
+  STATISTICS (No DS on GPU)
+=================================================================
+Resolution:             1024 x 1024 (1,048,576 pixels)
+Render time:            39.622 s
+Throughput (whole run): 0.09 MRays/s
+-----------------------------------------------------------------
+RAY DISTRIBUTION (Total: 3,487,462)
+  Primary:               30.1%  (1,048,576)
+  Secondary:             32.7%  (1,141,210)
+  Shadow:                37.2%  (1,297,676)
+-----------------------------------------------------------------
+WORKLOAD DISTRIBUTION
+  Sky (1 ray):           24.2%  (254,094)
+  Standard geometry:     73.3%  (768,577)
+  Hard (>> avg tests):    2.5%  (25,905)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 235,929,968,622)
+  Node/Triangle ratio:  0.0 : 1
+  Avg ops per ray:      67650.9
+  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 16.1)
+-----------------------------------------------------------------
+
+PER_HIT-PIXEL LOAD (min / mean / max)
+  Rays calls:        2 / 4.1 / 14
+  Incidence tests:   69656 / 274744.8 / 972482
+=================================================================
+
+[timing] render (with ds)    :   39.62 s (0.0 FPS)
+[timing] copy hdr to host    :    0.00 s
+[timing] oidn denoise        :    0.93 s
+[timing] postprocess (srgb/tonemapper on CPU):    0.96 s
+
+=================================================================
+  STATISTICS (DS on GPU)
+=================================================================
+Resolution:             1024 x 1024 (1,048,576 pixels)
+Render time:            41.515 s
+Throughput (whole run): 0.08 MRays/s
+-----------------------------------------------------------------
+RAY DISTRIBUTION (Total: 3,488,533)
+  Primary:               30.1%  (1,048,576)
+  Secondary:             32.7%  (1,141,668)
+  Shadow:                37.2%  (1,298,289)
+-----------------------------------------------------------------
+WORKLOAD DISTRIBUTION
+  Sky (1 ray):           24.2%  (254,098)
+  Standard geometry:     73.3%  (768,320)
+  Hard (>> avg tests):    2.5%  (26,158)
+-----------------------------------------------------------------
+BVH EFFICIENCY (Total incidence ops: 235,995,340,763)
+  Node/Triangle ratio:  0.0 : 1
+  Avg ops per ray:      67648.9
+  Avg nodes per ray:    0.0 (Ideal O(logN) ~ 16.1)
+-----------------------------------------------------------------
+
+PER_HIT-PIXEL LOAD (min / mean / max)
+  Rays calls:        2 / 4.1 / 14
+  Incidence tests:   69655 / 274828.2 / 972482
+=================================================================
+[timing] total (+-)          :   86.95 s
+```
+
+
+<!-- ***
 ```bash
 =================================================================
   STATISTICS (No DS on CPU)
@@ -144,7 +253,7 @@ PER-PIXEL LOAD (min / mean / max)
   Rays calls:        1 / 7.4 / 32
   Incidence tests:   1 / 293.3 / 5373
 =================================================================
-```
+``` -->
 
 
 ## Launching debug in VS Code

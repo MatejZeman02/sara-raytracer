@@ -1,0 +1,6 @@
+CornellBox-Bunny.obj
+pos 0 1 4.42
+up 0 1 0 
+dir 0 0 -1
+fov 0.6
+max_distance 6.0

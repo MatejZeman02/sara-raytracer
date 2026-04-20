@@ -34,6 +34,7 @@ from .settings import (
     DENOISE,
     PRINT_STATS,
     IMG_FORMAT,
+    SCENE_NAME,
 )
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
@@ -308,7 +309,7 @@ def main():
     height = width
     assert width > 0
 
-    json_file = os.path.join(project_root, "scenes", "box-advanced", "setup.json")
+    json_file = os.path.join(project_root, "scenes", SCENE_NAME, "setup.json")
     cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
     cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
 
