@@ -39,7 +39,7 @@ from .settings import (
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
 from .framebuffer import postprocess_hdr
-from .denoiser import denoise
+from .denoiser import HAS_OIDN, denoise
 
 if DEVICE == "gpu":
     from numba import cuda
@@ -384,9 +384,14 @@ def main():
     # copy HDR buffer to host, denoise, then apply ACES+sRGB to produce uint8
     fb_hdr_host = fb_hdr.copy_to_host() if DEVICE == "gpu" else fb_hdr
     t = _phase_time("copy hdr to host", t_bvh_end)
-    if DENOISE:
+    if DENOISE and HAS_OIDN:
         denoise(fb_hdr_host, width, height)
         t = _phase_time("oidn denoise", t)
+    elif DENOISE:
+        warnings.warn(
+            "DENOISE is enabled but OIDN is not installed; skipping denoising.",
+            RuntimeWarning,
+        )
 
     fb = np.zeros((height, width, 3), dtype=np.uint8)
     postprocess_hdr(fb_hdr_host, fb, width, height)

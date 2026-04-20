@@ -1,7 +1,16 @@
 """Intel Open Image Denoise (OIDN) wrapper for HDR path-traced buffers."""
 
+import warnings
+
 import numpy as np
-import oidn
+
+try:
+    import oidn
+except ImportError:
+    oidn = None
+    HAS_OIDN = False
+else:
+    HAS_OIDN = True
 
 
 def denoise(fb_hdr, width, height):
@@ -13,6 +22,14 @@ def denoise(fb_hdr, width, height):
     """
     assert fb_hdr.dtype == np.float32
     assert fb_hdr.shape == (height, width, 3)
+
+    if not HAS_OIDN:
+        warnings.warn(
+            "OIDN is not installed; skipping denoising.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
 
     # ensure C-contiguous layout (required for the output binding)
     if not fb_hdr.flags.c_contiguous:

@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:1
 
 #SBATCH --time=00:10:00
-#SBATCH --mem=4G
+#SBATCH --mem=32G
 
 PROJECT_ROOT="/home/zemanm40/ni-gpu/zemanm40"
 HW_SCRIPT="$PROJECT_ROOT/src/main.py"

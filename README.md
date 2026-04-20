@@ -10,6 +10,7 @@ For Python package on local machine, I use conda venv called 'raytracer'. Use `r
 
 I managed to run it on FIT cluster as well with using standard `.venv/` installed from `requirements.txt`
 If you do not have conda package manager, build your `.venv` form `requirements.txt`.
+OIDN is optional; without it the renderer still runs and simply skips the denoise pass.
 
 
 The output will be in the `src/output/` folder as `output.ppm/png/jpg`.
@@ -51,8 +52,13 @@ The meassurements assume the data is already on gpu.
 Saved bash rendering on cpu/gpu with/without BVH:
 
 ```bash
+
+
+```
+
+```bash
 GPU_DIMENSION = 1024
-SCENE_NAME = "dragon"
+SCENE_NAME = "box-spheres"
 SAMPLES = 6
 DENOISE = True
 MAX_BOUNCES = 16
