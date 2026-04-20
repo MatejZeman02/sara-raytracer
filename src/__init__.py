@@ -352,7 +352,7 @@ def main():
     rng_states = create_rng_states(width * height, seed=SEED)
 
     manager = KernelManager(render_kernel)
-    use_bvh = False
+    use_bvh = True
     manager.precompile_run(locals())
 
     threads = (BLOCK_THREADS, BLOCK_THREADS)
@@ -365,13 +365,13 @@ def main():
         t = _phase_time("render (no ds)", t_brute)
 
         stats_brute = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
-        print_statistics(stats_brute, t - t_brute, len(triangles), is_ds=use_bvh)
+        print_statistics(stats_brute, t - t_brute, len(triangles), is_ds=False)
         print()
 
         # reallocate buffers for the actual run
         fb_hdr, out_stats = allocate_buffers(width, height)
 
-    use_bvh = False
+    use_bvh = True
     if DEVICE == "gpu":
         cuda.profile_start()
     t_bvh_start = manager.run(grid, threads, locals())
