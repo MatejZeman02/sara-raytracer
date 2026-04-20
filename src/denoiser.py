@@ -6,7 +6,11 @@ import numpy as np
 
 try:
     import oidn
-except ImportError:
+
+    # Verify the API is available (NewDevice, DEVICE_TYPE_CPU, etc.)
+    if not (hasattr(oidn, "NewDevice") and hasattr(oidn, "DEVICE_TYPE_CPU")):
+        raise ImportError("OIDN module lacks expected API")
+except (ImportError, AttributeError):
     oidn = None
     HAS_OIDN = False
 else:
