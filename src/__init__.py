@@ -4,7 +4,7 @@
 
 import time
 
-LOAD_PYTHON_TIME = 1.0
+LOAD_PYTHON_TIME = 1.3 # meassured using 'time' command on empty main().
 t_start = time.perf_counter() - LOAD_PYTHON_TIME
 
 import math
@@ -66,7 +66,7 @@ def _phase_time(label: str, t0: float, fps: bool = False) -> float:
 
 
 def count_f64_in_ptx():
-    """for float 64 hunting: (and line debug info in the kernel enabled)"""
+    """for float 64 hunting (and line debug info in the kernel enabled)"""
     ptx_code = render_kernel.inspect_asm()
     for _signature, ptx in ptx_code.items():
         # count double precision instructions

@@ -76,6 +76,11 @@ def compute_shadow_ray_origin(
         normalized_chiang = mul(chiang_vec, ONE / length)
         chiang_vec = mul(normalized_chiang, max_offset)
 
+    # Chiang offset must never move the shadow origin back into the surface.
+    normal_comp = dot(chiang_vec, offset_n)
+    if normal_comp < ZERO:
+        chiang_vec = sub(chiang_vec, mul(offset_n, normal_comp))
+
     return add(base_p, chiang_vec)
 
 
