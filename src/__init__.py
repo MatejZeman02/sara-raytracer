@@ -303,7 +303,7 @@ def save_image(fb, output_path):
 def main():
     """run the render pipeline."""
     if DEVICE == "gpu":
-        print(f"Runs on device: {cuda.get_device_name()}")
+        print(f"Runs on device: {cuda.get_current_device().name[1:]}")
     else:
         print(f"Runs on device: {DEVICE.upper()}")
     t = _phase_time("init python", t_start)
