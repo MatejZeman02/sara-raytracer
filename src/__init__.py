@@ -302,7 +302,10 @@ def save_image(fb, output_path):
 
 def main():
     """run the render pipeline."""
-    print(f"Runs on device: {DEVICE.upper()}")
+    if DEVICE == "gpu":
+        print(f"Runs on device: {cuda.get_device_name()}")
+    else:
+        print(f"Runs on device: {DEVICE.upper()}")
     t = _phase_time("init python", t_start)
 
     width_host = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
