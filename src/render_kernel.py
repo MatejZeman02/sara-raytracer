@@ -303,7 +303,7 @@ if DEVICE == "cpu":
                 stack = empty(STACK_SIZE, dtype=np.int32)
                 # set root
                 stack[0] = np.int32(0)  # FIXME: not needed?
-                thread_idx = y * width + x
+                thread_idx = np.int32(y) * np.int32(width) + np.int32(x)
                 render_pixel(
                     triangles,
                     tri_normals,
@@ -361,11 +361,15 @@ elif DEVICE == "gpu":
     ):
         """gpu entry point, one thread per pixel"""
         x, y = cuda.grid(2)
+        x_i32 = numba.int32(x)
+        y_i32 = numba.int32(y)
+        width_i32 = numba.int32(width)
+        height_i32 = numba.int32(height)
         # return early for padding threads outside image bounds
-        if x >= width or y >= height:
+        if x_i32 >= width_i32 or y_i32 >= height_i32:
             return
         stack = cuda.local.array(STACK_SIZE, dtype=numba.int32)
-        thread_idx = y * width + x
+        thread_idx = y_i32 * width_i32 + x_i32
         render_pixel(
             triangles,
             tri_normals,
@@ -384,8 +388,8 @@ elif DEVICE == "gpu":
             origin,
             fb_hdr,
             out_stats,
-            x,
-            y,
+            x_i32,
+            y_i32,
             stack,
             rng_states,
             emissive_tris,

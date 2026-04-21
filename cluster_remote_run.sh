@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 
-#SBATCH --time=00:10:00
+#SBATCH --time=00:15:00
 #SBATCH --mem=32G
 
 PROJECT_ROOT="/home/zemanm40/ni-gpu/zemanm40"

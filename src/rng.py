@@ -23,13 +23,15 @@ if DEVICE == "cpu":
         rng_states[idx] = x
         return float32(x) * float32(2.3283064365386963e-10)
 
-    def create_rng_states(n, seed=42):
+    def create_rng_states(n: int, seed: int = 42):
         """allocate a uint32 state array seeded uniquely per pixel index."""
-        assert n > 0
+        n_i32 = np.int32(n)
+        seed_u32 = uint32(seed)
+        assert n_i32 > 0
         # seed each entry with its index + 1 to avoid zero state (xorshift dies at 0)
-        states = np.arange(1, n + 1, dtype=uint32)
+        states = np.arange(1, int(n_i32) + 1, dtype=uint32)
         # override entry 0 with the caller-provided seed
-        states[0] = max(uint32(1), uint32(seed))
+        states[0] = max(uint32(1), seed_u32)
         return states
 
 else:
@@ -39,7 +41,9 @@ else:
         """advance xoroshiro128p state and return a uniform float in [0, 1)."""
         return xoroshiro128p_uniform_float32(rng_states, idx)
 
-    def create_rng_states(n, seed=42):
+    def create_rng_states(n: int, seed: int = 42):
         """allocate xoroshiro128p states on the gpu - returns a device array."""
-        assert n > 0
-        return create_xoroshiro128p_states(n, seed=seed)
+        n_i32 = np.int32(n)
+        seed_u64 = np.uint64(seed)
+        assert n_i32 > 0
+        return create_xoroshiro128p_states(int(n_i32), seed=int(seed_u64))

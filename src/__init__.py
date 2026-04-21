@@ -305,9 +305,9 @@ def main():
     print(f"Runs on device: {DEVICE.upper()}")
     t = _phase_time("init python", t_start)
 
-    width = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
-    height = width
-    assert width > 0
+    width_host = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
+    height_host = width_host
+    assert width_host > 0
 
     json_file = os.path.join(project_root, "scenes", SCENE_NAME, "setup.json")
     cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
@@ -330,11 +330,15 @@ def main():
     ) = load_or_build_scene(json_file, cache_file, t)
 
     origin, p00, qw, qh, light_pos, light_color = build_setup_vectors(
-        light_data, cam_data, width, height
+        light_data, cam_data, width_host, height_host
     )
-    fb_hdr, out_stats = allocate_buffers(width, height)
+    fb_hdr, out_stats = allocate_buffers(width_host, height_host)
     if DEVICE == "gpu":
         t = _phase_time("init cuda + alloc", t)
+
+    # pass explicit int32 dimensions to kernels to avoid mixed scalar typing.
+    width = np.int32(width_host)
+    height = np.int32(height_host)
 
     # build index array of emissive triangles (after bvh reordering) for area light sampling
     emissive_mask = (
@@ -349,14 +353,18 @@ def main():
     ), "scene has no emissive triangles - area light requires at least one"
 
     # per-pixel rng states sized for the full image
-    rng_states = create_rng_states(width * height, seed=SEED)
+    rng_count = np.int32(width) * np.int32(height)
+    rng_states = create_rng_states(int(rng_count), seed=int(np.uint64(SEED)))
 
     manager = KernelManager(render_kernel)
     use_bvh = True
     manager.precompile_run(locals())
 
     threads = (BLOCK_THREADS, BLOCK_THREADS)
-    grid = (math.ceil(width / threads[0]), math.ceil(height / threads[1]))
+    grid = (
+        math.ceil(int(width) / threads[0]),
+        math.ceil(int(height) / threads[1]),
+    )
     t = _phase_time("jit compile run", t)
 
     if RENDER_NON_BVH_STATS:
@@ -369,7 +377,7 @@ def main():
         print()
 
         # reallocate buffers for the actual run
-        fb_hdr, out_stats = allocate_buffers(width, height)
+        fb_hdr, out_stats = allocate_buffers(width_host, height_host)
 
     use_bvh = True
     if DEVICE == "gpu":
@@ -385,7 +393,7 @@ def main():
     fb_hdr_host = fb_hdr.copy_to_host() if DEVICE == "gpu" else fb_hdr
     t = _phase_time("copy hdr to host", t_bvh_end)
     if DENOISE and HAS_OIDN:
-        denoise(fb_hdr_host, width, height)
+        denoise(fb_hdr_host, width_host, height_host)
         t = _phase_time("oidn denoise", t)
     elif DENOISE:
         warnings.warn(
@@ -393,8 +401,8 @@ def main():
             RuntimeWarning,
         )
 
-    fb = np.zeros((height, width, 3), dtype=np.uint8)
-    postprocess_hdr(fb_hdr_host, fb, width, height)
+    fb = np.zeros((height_host, width_host, 3), dtype=np.uint8)
+    postprocess_hdr(fb_hdr_host, fb, width_host, height_host)
     t = _phase_time("postprocess (srgb/tonemapper on CPU)", t)
     # add postprocess time to render time for more accurate "total time to final image" stat
     render_time += t - t_bvh_end
