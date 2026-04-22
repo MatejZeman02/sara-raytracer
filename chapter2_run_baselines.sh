@@ -6,6 +6,9 @@ LOG_ROOT="$PROJECT_ROOT/benchmark_logs"
 STAMP="${1:-$(date +%Y%m%d_%H%M%S)}"
 OUT_DIR="$LOG_ROOT/chapter2_${STAMP}"
 CSV_FILE="$OUT_DIR/results.csv"
+DRAGON_SCENE="${RT_DRAGON_SCENE:-dragon}"
+RUN_CPU="${RT_BENCH_RUN_CPU:-1}"
+RUN_GPU="${RT_BENCH_RUN_GPU:-1}"
 
 mkdir -p "$OUT_DIR"
 
@@ -66,15 +69,23 @@ run_case() {
     local block_y="$5"
 
     local log_file="$OUT_DIR/${case_name}.log"
+    local block_label="${block_x}x${block_y}"
+    if [[ "$mode" != "gpu" ]]; then
+        block_label="n/a"
+    fi
 
-    echo "\n=== ${case_name} (mode=${mode}, scene=${scene}, block=${block_x}x${block_y}) ==="
+    echo "\n=== ${case_name} (mode=${mode}, scene=${scene}, block=${block_label}) ==="
+
+    local -a cmd
+    cmd=(conda run -n raytracer python "$PROJECT_ROOT/src/main.py" --mode "$mode")
+    if [[ "$mode" == "gpu" ]]; then
+        cmd+=(--block-x "$block_x" --block-y "$block_y")
+    fi
+
     if RT_SCENE_NAME="$scene" \
         RT_USE_BVH_CACHE=1 \
         RT_DENOISE=0 \
-        conda run -n raytracer python "$PROJECT_ROOT/src/main.py" \
-            --mode "$mode" \
-            --block-x "$block_x" \
-            --block-y "$block_y" \
+        "${cmd[@]}" \
             > "$log_file" 2>&1; then
         parse_metrics_to_csv "$case_name" "$mode" "$scene" "$block_x" "$block_y" "$log_file" "$CSV_FILE" "OK"
         grep "\[metrics\]" "$log_file" || true
@@ -106,17 +117,25 @@ prewarm_scene_cache() {
     fi
 }
 
-prewarm_scene_cache "box-scaled"
-prewarm_scene_cache "dragon"
+if [[ "$RUN_CPU" == "1" ]]; then
+    prewarm_scene_cache "box-scaled"
+fi
+if [[ "$RUN_CPU" == "1" || "$RUN_GPU" == "1" ]]; then
+    prewarm_scene_cache "$DRAGON_SCENE"
+fi
 
-run_case "cpu_seq_box_scaled" "cpu-sequential" "box-scaled" "16" "16"
-run_case "cpu_seq_dragon" "cpu-sequential" "dragon" "16" "16"
-run_case "cpu_par_box_scaled" "cpu-parallel" "box-scaled" "16" "16"
-run_case "cpu_par_dragon" "cpu-parallel" "dragon" "16" "16"
+if [[ "$RUN_CPU" == "1" ]]; then
+    run_case "cpu_seq_box_scaled" "cpu-sequential" "box-scaled" "" ""
+    run_case "cpu_seq_${DRAGON_SCENE}" "cpu-sequential" "$DRAGON_SCENE" "" ""
+    run_case "cpu_par_box_scaled" "cpu-parallel" "box-scaled" "" ""
+    run_case "cpu_par_${DRAGON_SCENE}" "cpu-parallel" "$DRAGON_SCENE" "" ""
+fi
 
-run_case "gpu_dragon_8x8" "gpu" "dragon" "8" "8"
-run_case "gpu_dragon_16x16" "gpu" "dragon" "16" "16"
-run_case "gpu_dragon_32x32" "gpu" "dragon" "32" "32"
+if [[ "$RUN_GPU" == "1" ]]; then
+    run_case "gpu_${DRAGON_SCENE}_8x8" "gpu" "$DRAGON_SCENE" "8" "8"
+    run_case "gpu_${DRAGON_SCENE}_16x16" "gpu" "$DRAGON_SCENE" "16" "16"
+    run_case "gpu_${DRAGON_SCENE}_32x32" "gpu" "$DRAGON_SCENE" "32" "32"
+fi
 
 echo "\nBaseline benchmark completed."
 echo "Output directory: $OUT_DIR"

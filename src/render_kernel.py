@@ -264,72 +264,133 @@ def render_pixel(
 
 
 if DEVICE == "cpu":
-    # cpu entry point: parallel rows, serial columns
-    @njit(parallel=CPU_PARALLEL, fastmath=True)
-    def render_kernel(
-        triangles,
-        tri_normals,
-        tri_uvs,
-        mat_indices,
-        materials,
-        mat_diffuse_tex_ids,
-        diffuse_textures,
-        tex_widths,
-        tex_heights,
-        bvh_nodes,
-        use_bvh,
-        p00,
-        qw,
-        qh,
-        origin,
-        fb_hdr,
-        out_stats,
-        width,
-        height,
-        rng_states,
-        emissive_tris,
-        num_emissive,
-    ):
-        """cpu entry point, loops over all pixels with parallel rows"""
-        assert width > 0
-        assert height > 0
+    if CPU_PARALLEL:
+        # cpu entry point: parallel rows, serial columns
+        @njit(parallel=True, fastmath=True)
+        def render_kernel(
+            triangles,
+            tri_normals,
+            tri_uvs,
+            mat_indices,
+            materials,
+            mat_diffuse_tex_ids,
+            diffuse_textures,
+            tex_widths,
+            tex_heights,
+            bvh_nodes,
+            use_bvh,
+            p00,
+            qw,
+            qh,
+            origin,
+            fb_hdr,
+            out_stats,
+            width,
+            height,
+            rng_states,
+            emissive_tris,
+            num_emissive,
+        ):
+            """cpu entry point, loops over all pixels with parallel rows"""
+            assert width > 0
+            assert height > 0
 
-        DEBUG_PIXELS = [(440, 164), (434, 163), (250, 250)]
-        for y in range(height):
-            for x in range(width):
-                # if (x, y) not in DEBUG_PIXELS:
-                #     continue
-                # print("inspecting pixel x:", x, "y:", y)
-                stack = empty(STACK_SIZE, dtype=np.int32)
-                # set root
-                stack[0] = np.int32(0)  # FIXME: not needed?
-                thread_idx = np.int32(y) * np.int32(width) + np.int32(x)
-                render_pixel(
-                    triangles,
-                    tri_normals,
-                    tri_uvs,
-                    mat_indices,
-                    materials,
-                    mat_diffuse_tex_ids,
-                    diffuse_textures,
-                    tex_widths,
-                    tex_heights,
-                    bvh_nodes,
-                    use_bvh,
-                    p00,
-                    qw,
-                    qh,
-                    origin,
-                    fb_hdr,
-                    out_stats,
-                    x,
-                    y,
-                    stack,
-                    rng_states,
-                    emissive_tris,
-                    num_emissive,
-                    thread_idx,
-                )
+            for y in prange(height):
+                for x in range(width):
+                    stack = empty(STACK_SIZE, dtype=np.int32)
+                    # set root
+                    stack[0] = np.int32(0)  # FIXME: not needed?
+                    thread_idx = np.int32(y) * np.int32(width) + np.int32(x)
+                    render_pixel(
+                        triangles,
+                        tri_normals,
+                        tri_uvs,
+                        mat_indices,
+                        materials,
+                        mat_diffuse_tex_ids,
+                        diffuse_textures,
+                        tex_widths,
+                        tex_heights,
+                        bvh_nodes,
+                        use_bvh,
+                        p00,
+                        qw,
+                        qh,
+                        origin,
+                        fb_hdr,
+                        out_stats,
+                        x,
+                        y,
+                        stack,
+                        rng_states,
+                        emissive_tris,
+                        num_emissive,
+                        thread_idx,
+                    )
+
+    else:
+        # cpu entry point: fully sequential loops
+        @njit(parallel=False, fastmath=True)
+        def render_kernel(
+            triangles,
+            tri_normals,
+            tri_uvs,
+            mat_indices,
+            materials,
+            mat_diffuse_tex_ids,
+            diffuse_textures,
+            tex_widths,
+            tex_heights,
+            bvh_nodes,
+            use_bvh,
+            p00,
+            qw,
+            qh,
+            origin,
+            fb_hdr,
+            out_stats,
+            width,
+            height,
+            rng_states,
+            emissive_tris,
+            num_emissive,
+        ):
+            """cpu entry point, loops over all pixels sequentially"""
+            assert width > 0
+            assert height > 0
+
+            for y in range(height):
+                for x in range(width):
+                    stack = empty(STACK_SIZE, dtype=np.int32)
+                    # set root
+                    stack[0] = np.int32(0)  # FIXME: not needed?
+                    thread_idx = np.int32(y) * np.int32(width) + np.int32(x)
+                    render_pixel(
+                        triangles,
+                        tri_normals,
+                        tri_uvs,
+                        mat_indices,
+                        materials,
+                        mat_diffuse_tex_ids,
+                        diffuse_textures,
+                        tex_widths,
+                        tex_heights,
+                        bvh_nodes,
+                        use_bvh,
+                        p00,
+                        qw,
+                        qh,
+                        origin,
+                        fb_hdr,
+                        out_stats,
+                        x,
+                        y,
+                        stack,
+                        rng_states,
+                        emissive_tris,
+                        num_emissive,
+                        thread_idx,
+                    )
 
 elif DEVICE == "gpu":
     # gpu entry point: one cuda thread per pixel
