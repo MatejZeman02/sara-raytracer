@@ -1,7 +1,40 @@
 """Script wrapper that runs package main (to be compatible with older branches)."""
 
+import argparse
 import os
 import sys
+
+
+def _apply_runtime_overrides(argv):
+    """Apply CLI runtime overrides via environment variables before package import."""
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument(
+        "--mode",
+        choices=("cpu-sequential", "cpu-parallel", "gpu"),
+        help="Execution mode override.",
+    )
+    parser.add_argument(
+        "--block-x",
+        type=int,
+        help="GPU block X dimension override.",
+    )
+    parser.add_argument(
+        "--block-y",
+        type=int,
+        help="GPU block Y dimension override.",
+    )
+    args, _unknown = parser.parse_known_args(argv)
+
+    if args.mode:
+        os.environ["RT_EXECUTION_MODE"] = args.mode
+    if args.block_x is not None:
+        if args.block_x <= 0:
+            raise ValueError(f"--block-x must be positive, got {args.block_x}")
+        os.environ["RT_GPU_BLOCK_X"] = str(args.block_x)
+    if args.block_y is not None:
+        if args.block_y <= 0:
+            raise ValueError(f"--block-y must be positive, got {args.block_y}")
+        os.environ["RT_GPU_BLOCK_Y"] = str(args.block_y)
 
 
 def _resolve_main():
@@ -20,4 +53,5 @@ def _resolve_main():
 
 
 if __name__ == "__main__":
+    _apply_runtime_overrides(sys.argv[1:])
     _resolve_main()()

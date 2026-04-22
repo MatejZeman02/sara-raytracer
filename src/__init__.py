@@ -4,7 +4,7 @@
 
 import time
 
-LOAD_PYTHON_TIME = 1.3 # meassured using 'time' command on empty main().
+LOAD_PYTHON_TIME = 1.3  # meassured using 'time' command on empty main().
 t_start = time.perf_counter() - LOAD_PYTHON_TIME
 
 import math
@@ -24,11 +24,18 @@ from .constants import (
     MAT_EMISSIVE_R,
     MAT_EMISSIVE_G,
     MAT_EMISSIVE_B,
+    PRIMARY_RAY,
+    SECONDARY_RAY,
+    SHADOW_RAY,
 )
 from .settings import (
     CPU_DIMENSION,
     GPU_DIMENSION,
     DEVICE,
+    EXECUTION_MODE,
+    CPU_PARALLEL,
+    GPU_BLOCK_X,
+    GPU_BLOCK_Y,
     RENDER_NON_BVH_STATS,
     USE_BVH_CACHE,
     DENOISE,
@@ -63,6 +70,43 @@ def _phase_time(label: str, t0: float, fps: bool = False) -> float:
         + (f" ({1.0/(t1 - t0):.1f} FPS)" if fps else "")
     )
     return t1
+
+
+def run_render_timed(manager, grid, threads, data_context):
+    """Run the render kernel and return strict elapsed wall-clock time."""
+    t0 = time.perf_counter()
+    manager.run(grid, threads, data_context, measure_time=False)
+    t1 = time.perf_counter()
+    return t1 - t0
+
+
+def calculate_render_metrics(stats, render_time):
+    """Calculate baseline metrics: total rays and throughput in MRays/s."""
+    assert stats.ndim == 3
+    assert stats.shape[2] == 5
+    total_primary = int(np.sum(stats[:, :, PRIMARY_RAY], dtype=np.int64))
+    total_secondary = int(np.sum(stats[:, :, SECONDARY_RAY], dtype=np.int64))
+    total_shadow = int(np.sum(stats[:, :, SHADOW_RAY], dtype=np.int64))
+    total_rays = total_primary + total_secondary + total_shadow
+    mrays_per_sec = (total_rays / 1e6) / render_time if render_time > 0.0 else 0.0
+    return {
+        "render_time_s": render_time,
+        "primary_rays": total_primary,
+        "secondary_rays": total_secondary,
+        "shadow_rays": total_shadow,
+        "total_rays": total_rays,
+        "mrays_per_sec": mrays_per_sec,
+    }
+
+
+def print_render_metrics(metrics, label="with ds"):
+    """Print strict baseline throughput metrics."""
+    print(
+        f"[metrics] {label:<20}: {metrics['render_time_s']:7.4f} s\n"
+        f"[metrics] total rays cast      : {metrics['total_rays']:,}"
+        f" (primary={metrics['primary_rays']:,}, secondary={metrics['secondary_rays']:,}, shadow={metrics['shadow_rays']:,})\n"
+        f"[metrics] throughput           : {metrics['mrays_per_sec']:.3f} MRays/s"
+    )
 
 
 def count_f64_in_ptx():
@@ -302,10 +346,12 @@ def save_image(fb, output_path):
 
 def main():
     """run the render pipeline."""
-    if DEVICE == "gpu":
-        print(f"Runs on device: {str(cuda.get_current_device().name)[1:]}")
+    if DEVICE == "cpu":
+        cpu_mode = "parallel" if CPU_PARALLEL else "sequential"
+        print(f"Runs on device: CPU ({cpu_mode})")
     else:
-        print(f"Runs on device: {DEVICE.upper()}")
+        print(f"Runs on device: GPU ({GPU_BLOCK_X}x{GPU_BLOCK_Y} threads/block)")
+    print(f"[config] execution mode      : {EXECUTION_MODE}")
     t = _phase_time("init python", t_start)
 
     width_host = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
@@ -363,20 +409,32 @@ def main():
     use_bvh = True
     manager.precompile_run(locals())
 
-    threads = (BLOCK_THREADS, BLOCK_THREADS)
-    grid = (
-        math.ceil(int(width) / threads[0]),
-        math.ceil(int(height) / threads[1]),
-    )
+    if DEVICE == "gpu":
+        threads = (GPU_BLOCK_X, GPU_BLOCK_Y)
+        grid = (
+            math.ceil(int(width) / threads[0]),
+            math.ceil(int(height) / threads[1]),
+        )
+    else:
+        # CPU path ignores grid and block in KernelManager.
+        threads = (BLOCK_THREADS, BLOCK_THREADS)
+        grid = (1, 1)
     t = _phase_time("jit compile run", t)
 
     if RENDER_NON_BVH_STATS:
         use_bvh = False
-        t_brute = manager.run(grid, threads, locals())
-        t = _phase_time("render (no ds)", t_brute)
+        brute_render_time = run_render_timed(manager, grid, threads, locals())
+        brute_fps = (1.0 / brute_render_time) if brute_render_time > 0.0 else 0.0
+        print(
+            f"[timing] {'render (no ds)':<20}: {brute_render_time:7.2f} s ({brute_fps:.1f} FPS)"
+        )
 
         stats_brute = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
-        print_statistics(stats_brute, t - t_brute, len(triangles), is_ds=False)
+        print_render_metrics(
+            calculate_render_metrics(stats_brute, brute_render_time),
+            label="no ds",
+        )
+        print_statistics(stats_brute, brute_render_time, len(triangles), is_ds=False)
         print()
 
         # reallocate buffers for the actual run
@@ -385,12 +443,16 @@ def main():
     use_bvh = True
     if DEVICE == "gpu":
         cuda.profile_start()
-    t_bvh_start = manager.run(grid, threads, locals())
+    kernel_render_time = run_render_timed(manager, grid, threads, locals())
     if DEVICE == "gpu":
         cuda.profile_stop()
 
-    t_bvh_end = _phase_time("render (with ds)", t_bvh_start, fps=True)
-    render_time = t_bvh_end - t_bvh_start
+    render_fps = (1.0 / kernel_render_time) if kernel_render_time > 0.0 else 0.0
+    print(
+        f"[timing] {'render (with ds)':<20}: {kernel_render_time:7.2f} s ({render_fps:.1f} FPS)"
+    )
+    t_bvh_end = time.perf_counter()
+    render_time = kernel_render_time
 
     # copy HDR buffer to host, denoise, then apply ACES+sRGB to produce uint8
     fb_hdr_host = fb_hdr.copy_to_host() if DEVICE == "gpu" else fb_hdr
@@ -411,6 +473,7 @@ def main():
     render_time += t - t_bvh_end
 
     stats = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
+    print_render_metrics(calculate_render_metrics(stats, kernel_render_time))
     print_statistics(stats, render_time, len(triangles))
 
     output_path = os.path.join(

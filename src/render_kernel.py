@@ -3,7 +3,7 @@ import numpy as np
 from numpy import float32, empty
 import numba
 from numba import cuda, njit, prange
-from settings import DEVICE, MAX_BOUNCES, SAMPLES
+from settings import DEVICE, MAX_BOUNCES, SAMPLES, CPU_PARALLEL
 from constants import (
     STACK_SIZE,
     HALF,
@@ -265,7 +265,7 @@ def render_pixel(
 
 if DEVICE == "cpu":
     # cpu entry point: parallel rows, serial columns
-    @njit(parallel=True, fastmath=True)
+    @njit(parallel=CPU_PARALLEL, fastmath=True)
     def render_kernel(
         triangles,
         tri_normals,
