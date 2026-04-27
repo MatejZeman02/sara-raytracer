@@ -14,6 +14,7 @@ from constants import (
 )
 
 BINS = 8
+MAX_VAL = np.float32(1e20)
 
 
 @njit
@@ -21,8 +22,8 @@ def get_aabb(triangles, tri_ids, start, end):
     """Bounding box for a subset of triangles"""
     assert start < end
 
-    bmin = np.array([1e20, 1e20, 1e20], dtype=np.float32)
-    bmax = np.array([-1e20, -1e20, -1e20], dtype=np.float32)
+    bmin = np.array([MAX_VAL, MAX_VAL, MAX_VAL], dtype=np.float32)
+    bmax = np.array([-MAX_VAL, -MAX_VAL, -MAX_VAL], dtype=np.float32)
 
     for i in range(start, end):
         t_idx = tri_ids[i]
@@ -57,6 +58,30 @@ def get_area(bmin, bmax):
     if e[0] < 0.0 or e[1] < 0.0 or e[2] < 0.0:
         return 0.0
     return 2.0 * (e[0] * e[1] + e[1] * e[2] + e[2] * e[0])
+
+
+@njit
+def expand_triangle_bounds(triangles, t_idx, out_min, out_max):
+    """Expand aabb bounds with all vertices of one triangle."""
+    for j in range(3):
+        v_x = triangles[t_idx, j, 0]
+        v_y = triangles[t_idx, j, 1]
+        v_z = triangles[t_idx, j, 2]
+
+        if v_x < out_min[0]:
+            out_min[0] = v_x
+        if v_x > out_max[0]:
+            out_max[0] = v_x
+
+        if v_y < out_min[1]:
+            out_min[1] = v_y
+        if v_y > out_max[1]:
+            out_max[1] = v_y
+
+        if v_z < out_min[2]:
+            out_min[2] = v_z
+        if v_z > out_max[2]:
+            out_max[2] = v_z
 
 
 @njit
@@ -96,8 +121,8 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
             continue
 
         # centroid bounds for binning
-        cmin = np.array([1e20, 1e20, 1e20], dtype=np.float32)
-        cmax = np.array([-1e20, -1e20, -1e20], dtype=np.float32)
+        cmin = np.array([MAX_VAL, MAX_VAL, MAX_VAL], dtype=np.float32)
+        cmax = np.array([-MAX_VAL, -MAX_VAL, -MAX_VAL], dtype=np.float32)
         for i in range(start, end):
             t_idx = tri_ids[i]
             # unrolled 'for k in range(3)'
@@ -120,73 +145,113 @@ def build_bvh_jit(triangles, centroids, tri_ids, nodes):
             if val_z > cmax[2]:
                 cmax[2] = val_z
 
-        best_cost = 1e20
+        area_p = get_area(bmin, bmax)
+        if area_p <= 0.0:
+            nodes[node_idx, BVH_MIN_X : BVH_MIN_Z + 1] = bmin
+            nodes[node_idx, BVH_MAX_X : BVH_MAX_Z + 1] = bmax
+            nodes[node_idx, BVH_LEFT_OR_START] = start
+            nodes[node_idx, BVH_RIGHT_OR_COUNT] = num_tris
+            continue
+
+        best_cost = MAX_VAL
         best_axis = -1
         best_split = 0.0
 
-        # test sah over bins per axis
+        # true binned SAH: one histogram build per axis, O(BINS) split sweep
         for axis in range(3):
             if cmin[axis] == cmax[axis]:
                 continue
 
             scale = BINS / (cmax[axis] - cmin[axis])
-            for b in range(1, BINS):
-                split_val = cmin[axis] + b / scale
 
-                nl = 0
-                nr = 0
-                lmin = np.array([1e20, 1e20, 1e20], dtype=np.float32)
-                lmax = np.array([-1e20, -1e20, -1e20], dtype=np.float32)
-                rmin = np.array([1e20, 1e20, 1e20], dtype=np.float32)
-                rmax = np.array([-1e20, -1e20, -1e20], dtype=np.float32)
+            # bin histogram (count + bin aabbs)
+            bin_count = np.zeros(BINS, dtype=np.int32)
+            bin_min = np.full((BINS, 3), MAX_VAL, dtype=np.float32)
+            bin_max = np.full((BINS, 3), -MAX_VAL, dtype=np.float32)
 
-                # accumulate bounding boxes for left and right sides
-                for i in range(start, end):
-                    t_idx = tri_ids[i]
-                    if centroids[t_idx, axis] < split_val:
-                        nl += 1
-                        for j in range(3):
-                            # unrolled 'for k in range(3)'
-                            val_x = triangles[t_idx, j, 0]
-                            val_y = triangles[t_idx, j, 1]
-                            val_z = triangles[t_idx, j, 2]
+            for i in range(start, end):
+                t_idx = tri_ids[i]
+                bin_idx = int((centroids[t_idx, axis] - cmin[axis]) * scale)
+                if bin_idx < 0:
+                    bin_idx = 0
+                elif bin_idx >= BINS:
+                    bin_idx = BINS - 1
 
-                            if val_x < lmin[0]:
-                                lmin[0] = val_x
-                            if val_x > lmax[0]:
-                                lmax[0] = val_x
+                bin_count[bin_idx] += 1
+                expand_triangle_bounds(
+                    triangles, t_idx, bin_min[bin_idx], bin_max[bin_idx]
+                )
 
-                            if val_y < lmin[1]:
-                                lmin[1] = val_y
-                            if val_y > lmax[1]:
-                                lmax[1] = val_y
+            # prefix (left) accumulations
+            left_count = np.zeros(BINS - 1, dtype=np.int32)
+            left_area = np.zeros(BINS - 1, dtype=np.float32)
+            run_count = 0
+            run_min = np.array([MAX_VAL, MAX_VAL, MAX_VAL], dtype=np.float32)
+            run_max = np.array([-MAX_VAL, -MAX_VAL, -MAX_VAL], dtype=np.float32)
 
-                            if val_z < lmin[2]:
-                                lmin[2] = val_z
-                            if val_z > lmax[2]:
-                                lmax[2] = val_z
-                    else:
-                        nr += 1
-                        for j in range(3):
-                            for k in range(3):
-                                val = triangles[t_idx, j, k]
-                                if val < rmin[k]:
-                                    rmin[k] = val
-                                if val > rmax[k]:
-                                    rmax[k] = val
+            for b in range(BINS - 1):
+                if bin_count[b] > 0:
+                    run_count += bin_count[b]
 
+                    if bin_min[b, 0] < run_min[0]:
+                        run_min[0] = bin_min[b, 0]
+                    if bin_max[b, 0] > run_max[0]:
+                        run_max[0] = bin_max[b, 0]
+
+                    if bin_min[b, 1] < run_min[1]:
+                        run_min[1] = bin_min[b, 1]
+                    if bin_max[b, 1] > run_max[1]:
+                        run_max[1] = bin_max[b, 1]
+
+                    if bin_min[b, 2] < run_min[2]:
+                        run_min[2] = bin_min[b, 2]
+                    if bin_max[b, 2] > run_max[2]:
+                        run_max[2] = bin_max[b, 2]
+
+                left_count[b] = run_count
+                left_area[b] = get_area(run_min, run_max)
+
+            # suffix (right) accumulations
+            right_count = np.zeros(BINS - 1, dtype=np.int32)
+            right_area = np.zeros(BINS - 1, dtype=np.float32)
+            run_count = 0
+            run_min = np.array([MAX_VAL, MAX_VAL, MAX_VAL], dtype=np.float32)
+            run_max = np.array([-MAX_VAL, -MAX_VAL, -MAX_VAL], dtype=np.float32)
+
+            for b in range(BINS - 1, 0, -1):
+                if bin_count[b] > 0:
+                    run_count += bin_count[b]
+
+                    if bin_min[b, 0] < run_min[0]:
+                        run_min[0] = bin_min[b, 0]
+                    if bin_max[b, 0] > run_max[0]:
+                        run_max[0] = bin_max[b, 0]
+
+                    if bin_min[b, 1] < run_min[1]:
+                        run_min[1] = bin_min[b, 1]
+                    if bin_max[b, 1] > run_max[1]:
+                        run_max[1] = bin_max[b, 1]
+
+                    if bin_min[b, 2] < run_min[2]:
+                        run_min[2] = bin_min[b, 2]
+                    if bin_max[b, 2] > run_max[2]:
+                        run_max[2] = bin_max[b, 2]
+
+                right_count[b - 1] = run_count
+                right_area[b - 1] = get_area(run_min, run_max)
+
+            # evaluate splits in O(BINS)
+            for b in range(BINS - 1):
+                nl = left_count[b]
+                nr = right_count[b]
                 if nl == 0 or nr == 0:
                     continue
 
-                area_l = get_area(lmin, lmax)
-                area_r = get_area(rmin, rmax)
-                area_p = get_area(bmin, bmax)
-
-                cost = 1.0 + (nl * area_l + nr * area_r) / area_p
+                cost = 1.0 + (nl * left_area[b] + nr * right_area[b]) / area_p
                 if cost < best_cost:
                     best_cost = cost
                     best_axis = axis
-                    best_split = split_val
+                    best_split = cmin[axis] + (b + 1) / scale
 
         # make leaf if sah cost is worse than just intersecting all
         if best_cost >= num_tris:
