@@ -294,12 +294,8 @@ if DEVICE == "cpu":
         assert width > 0
         assert height > 0
 
-        DEBUG_PIXELS = [(440, 164), (434, 163), (250, 250)]
         for y in range(height):
             for x in range(width):
-                # if (x, y) not in DEBUG_PIXELS:
-                #     continue
-                # print("inspecting pixel x:", x, "y:", y)
                 stack = empty(STACK_SIZE, dtype=np.int32)
                 # set root
                 stack[0] = np.int32(0)  # FIXME: not needed?

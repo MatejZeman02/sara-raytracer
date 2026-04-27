@@ -4,7 +4,7 @@
 
 import time
 
-LOAD_PYTHON_TIME = 1.3 # meassured using 'time' command on empty main().
+LOAD_PYTHON_TIME = 1.3  # meassured using 'time' command on empty main().
 t_start = time.perf_counter() - LOAD_PYTHON_TIME
 
 import math
@@ -38,7 +38,7 @@ from .settings import (
 )
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
-from .framebuffer import postprocess_hdr
+from .framebuffer import postprocess_sdr_to_u8, tonemap_hdr_to_sdr
 from .denoiser import HAS_OIDN, denoise
 
 if DEVICE == "gpu":
@@ -392,9 +392,11 @@ def main():
     t_bvh_end = _phase_time("render (with ds)", t_bvh_start, fps=True)
     render_time = t_bvh_end - t_bvh_start
 
-    # copy HDR buffer to host, denoise, then apply ACES+sRGB to produce uint8
+    # copy HDR buffer to host, tonemap to SDR, denoise, then gamma-correct to uint8
     fb_hdr_host = fb_hdr.copy_to_host() if DEVICE == "gpu" else fb_hdr
     t = _phase_time("copy hdr to host", t_bvh_end)
+    tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
+    t = _phase_time("tonemap HDR -> SDR", t)
     if DENOISE and HAS_OIDN:
         denoise(fb_hdr_host, width_host, height_host)
         t = _phase_time("oidn denoise", t)
@@ -405,8 +407,8 @@ def main():
         )
 
     fb = np.zeros((height_host, width_host, 3), dtype=np.uint8)
-    postprocess_hdr(fb_hdr_host, fb, width_host, height_host)
-    t = _phase_time("postprocess (srgb/tonemapper on CPU)", t)
+    postprocess_sdr_to_u8(fb_hdr_host, fb, width_host, height_host)
+    t = _phase_time("gamma correct to uint8", t)
     # add postprocess time to render time for more accurate "total time to final image" stat
     render_time += t - t_bvh_end
 

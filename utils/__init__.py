@@ -19,7 +19,6 @@ def device_jit(*args, **kwargs):
 
         return njit(*args, **kwargs)
     else:
-
         # kwargs.setdefault("lineinfo", True) # debug info for gpu kernels
         kwargs.setdefault("device", True)
         kwargs.setdefault("fastmath", False)

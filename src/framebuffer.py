@@ -1,8 +1,9 @@
+import math
 from numpy import float32, uint8
 from numba import njit, prange
 from utils import device_jit
-from utils.vec_utils import vec3, linear_to_srgb
 from constants import ONE, HALF, UINT8_MAX_F, UINT8_MAX_I, ZERO
+from settings import DEVICE
 
 
 @device_jit
@@ -17,7 +18,7 @@ def render_normals(n, fb, x, y):
     fb[y, x, 2] = min(UINT8_MAX_I, int(b_val * UINT8_MAX_F))
 
 
-@device_jit
+@njit(fastmath=True)
 def aces_narkowicz_tonemap(x):
     """aces filmic tonemapping curve approximate"""
     assert x >= ZERO
@@ -34,25 +35,54 @@ def aces_narkowicz_tonemap(x):
     return mapped
 
 
-@device_jit
-def write_color_to_fb(cr, cg, cb, fb, x, y):
-    assert x >= 0
-    assert y >= 0
+if DEVICE == "gpu":
+    khronos_tonemap = njit(fastmath=True)
+else:
+    khronos_tonemap = device_jit
 
-    # tone map the linear hdr color to sdr
-    cr_mapped = aces_narkowicz_tonemap(cr)
-    cg_mapped = aces_narkowicz_tonemap(cg)
-    cb_mapped = aces_narkowicz_tonemap(cb)
 
-    # apply srgb transfer function and write to framebuffer
-    r_srgb = int(linear_to_srgb(cr_mapped) * UINT8_MAX_F)
-    g_srgb = int(linear_to_srgb(cg_mapped) * UINT8_MAX_F)
-    b_srgb = int(linear_to_srgb(cb_mapped) * UINT8_MAX_F)
+@khronos_tonemap
+def khronos_pbr_neutral_tonemapper(r, g, b):
+    """Leaves values below 0.8 mostly unchanged"""
+    # constants defined by the khronos spec
+    start_compression = float32(0.8) - float32(0.04)
+    desaturation = float32(0.15)
+    min_channel = min(r, min(g, b))
 
-    # clipping limit is no longer needed due to tonemap clamping
-    fb[y, x, 0] = r_srgb
-    fb[y, x, 1] = g_srgb
-    fb[y, x, 2] = b_srgb
+    # apply a small offset to black levels
+    if min_channel < 0.08:
+        offset = min_channel - (float32(6.25) * min_channel * min_channel)
+    else:
+        offset = float32(0.04)
+
+    r -= offset
+    g -= offset
+    b -= offset
+
+    # if in SDR, do nothing
+    peak = max(r, max(g, b))
+    if peak < start_compression:
+        return r, g, b
+
+    # compress highlights
+    d = ONE - start_compression
+    new_peak = ONE - d * d / (peak + d - start_compression)
+
+    # scale by compressed peak
+    scale = new_peak / peak
+    r *= scale
+    g *= scale
+    b *= scale
+
+    # desaturation factor for extremes
+    desat_factor = ONE - ONE / (desaturation * (peak - new_peak) + ONE)
+
+    # mix the color towards white (new_peak) based on desat_factor
+    r = r * (ONE - desat_factor) + new_peak * desat_factor
+    g = g * (ONE - desat_factor) + new_peak * desat_factor
+    b = b * (ONE - desat_factor) + new_peak * desat_factor
+
+    return r, g, b
 
 
 @device_jit
@@ -65,42 +95,93 @@ def write_hdr_to_fb(cr, cg, cb, fb_hdr, x, y):
     fb_hdr[y, x, 2] = cb
 
 
-@njit(parallel=True, fastmath=True)
-def postprocess_hdr(fb_hdr, out, width, height):
-    """apply ACES filmic tonemap + sRGB gamma to denoised HDR buffer, write uint8.
+METHOD = "none"  # "none", "khronos" or "aces"
 
-    Runs on the CPU (host numpy arrays) after OIDN denoising so it is always
-    compiled as a plain Numba njit kernel regardless of the render DEVICE.
+
+@njit(fastmath=True)
+def linear_to_srgb(c):
+    if c <= float32(0.0031308):
+        return float32(12.92) * c
+    return float32(1.055) * math.pow(c, ONE / float32(2.4)) - float32(0.055)
+
+
+@njit(parallel=True, fastmath=True)
+def tonemap_hdr_to_sdr(fb_hdr, width, height):
+    """apply Khronos PBR Neutral tonemap in-place to an HDR float32 buffer.
+
+    The buffer is rewritten in-place with float32 SDR values in [0, 1].
     """
     assert width > 0
     assert height > 0
     assert fb_hdr.shape[0] == height
     assert fb_hdr.shape[1] == width
-    assert out.shape[0] == height
-    assert out.shape[1] == width
 
     for y in prange(height):
         for x in range(width):
             for c in range(3):
-                # check for NaNs or negative values
+                # check for NaNs or negative values:
                 assert (
                     fb_hdr[y, x, c] >= ZERO
                 ), f"Negative color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
                 assert (
                     fb_hdr[y, x, c] == fb_hdr[y, x, c]
                 ), f"NaN color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
-                v = fb_hdr[y, x, c]  # channel_value
-                # ACES Narkowicz approximation (matches aces_narkowicz_tonemap)
-                v = (v * (float32(2.51) * v + float32(0.03))) / (
-                    v * (float32(2.43) * v + float32(0.59)) + float32(0.14)
-                )
-                if v < float32(0.0):
-                    v = float32(0.0)
-                elif v > float32(1.0):
-                    v = float32(1.0)
-                # linear to sRGB (IEC 61966-2-1)
-                if v <= float32(0.0031308):
-                    v = float32(12.92) * v
-                else:
-                    v = float32(1.055) * (v ** float32(1.0 / 2.4)) - float32(0.055)
-                out[y, x, c] = uint8(int(v * float32(255.0)))
+
+            cr = fb_hdr[y, x, 0]
+            cg = fb_hdr[y, x, 1]
+            cb = fb_hdr[y, x, 2]
+
+            cr_mapped, cg_mapped, cb_mapped = khronos_pbr_neutral_tonemapper(cr, cg, cb)
+
+            # keep OIDN in LDR-safe range before denoising
+            if cr_mapped < ZERO:
+                cr_mapped = ZERO
+            elif cr_mapped > ONE:
+                cr_mapped = ONE
+
+            if cg_mapped < ZERO:
+                cg_mapped = ZERO
+            elif cg_mapped > ONE:
+                cg_mapped = ONE
+
+            if cb_mapped < ZERO:
+                cb_mapped = ZERO
+            elif cb_mapped > ONE:
+                cb_mapped = ONE
+
+            fb_hdr[y, x, 0] = cr_mapped
+            fb_hdr[y, x, 1] = cg_mapped
+            fb_hdr[y, x, 2] = cb_mapped
+
+
+@njit(parallel=True, fastmath=True)
+def postprocess_sdr_to_u8(fb_sdr, out, width, height):
+    """apply sRGB gamma to an SDR float32 buffer and write uint8 pixels.
+
+    Runs on the CPU (host numpy arrays) after tonemapping and denoising.
+    """
+    assert width > 0
+    assert height > 0
+    assert fb_sdr.shape[0] == height
+    assert fb_sdr.shape[1] == width
+    assert out.shape[0] == height
+    assert out.shape[1] == width
+
+    for y in prange(height):
+        for x in range(width):
+            for c in range(3):
+                assert (
+                    fb_sdr[y, x, c] >= ZERO
+                ), f"Negative color value in SDR buffer at x: {x}, y: {y}, channel: {c}"
+                assert (
+                    fb_sdr[y, x, c] == fb_sdr[y, x, c]
+                ), f"NaN color value in SDR buffer at x: {x}, y: {y}, channel: {c}"
+
+            cr = fb_sdr[y, x, 0]
+            cg = fb_sdr[y, x, 1]
+            cb = fb_sdr[y, x, 2]
+
+            # apply srgb transfer function and write to framebuffer
+            out[y, x, 0] = int(linear_to_srgb(cr) * UINT8_MAX_F)
+            out[y, x, 1] = int(linear_to_srgb(cg) * UINT8_MAX_F)
+            out[y, x, 2] = int(linear_to_srgb(cb) * UINT8_MAX_F)
