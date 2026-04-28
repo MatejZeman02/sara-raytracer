@@ -8,7 +8,7 @@ from numpy import float32, uint8, random
 DET_EPSILON = float32(1e-9)
 # used for t-distance checks and shadow ray origin offsets (scene-scale tolerance)
 RAY_EPSILON = float32(1e-6)
-DIST_TO_LIGHT_MULT = float32(1e-4) # t max safeguard for shadow rays
+DIST_TO_LIGHT_MULT = float32(1e-4)  # t max safeguard for shadow rays
 
 BARYCENTRIC_EPSILON = float32(1e-7)  # acounts with float32 precision error
 DENOMINATOR_EPSILON = float32(1e-10)  # division by zero and its check statements
@@ -71,3 +71,7 @@ PRIMARY_RAY = 2
 SECONDARY_RAY = 3
 # 4: shadow rays
 SHADOW_RAY = 4
+
+# Wavefront ray state status
+WF_STATUS_DONE = 0
+WF_STATUS_ACTIVE = 1

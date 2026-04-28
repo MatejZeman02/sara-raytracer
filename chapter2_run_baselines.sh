@@ -12,7 +12,7 @@ RUN_GPU="${RT_BENCH_RUN_GPU:-1}"
 
 mkdir -p "$OUT_DIR"
 
-echo "case,mode,scene,block_x,block_y,status,render_time_s,total_rays,mrays_per_s,log_file" > "$CSV_FILE"
+echo "case,mode,scene,block_x,block_y,status,render_time_s,total_rays,mrays_per_s,wavefront_enabled,ops_budget,pass1_time_s,compaction_time_s,pass2_time_s,active_rays_compacted,log_file" > "$CSV_FILE"
 
 parse_metrics_to_csv() {
     local case_name="$1"
@@ -42,6 +42,28 @@ total_rays = rays_match.group(1).replace(",", "") if rays_match else ""
 through_match = re.search(r"\[metrics\]\s+throughput\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*MRays/s", text)
 throughput = through_match.group(1) if through_match else ""
 
+wf_match = re.search(r"\[config\]\s+wavefront enabled\s*:\s*(True|False|true|false|1|0)", text)
+if wf_match:
+    wavefront_enabled = wf_match.group(1).strip().lower()
+    wavefront_enabled = "1" if wavefront_enabled in ("true", "1") else "0"
+else:
+    wavefront_enabled = "0"
+
+ops_budget_match = re.search(r"\[config\]\s+bvh ops budget\s*:\s*([0-9]+)", text)
+ops_budget = ops_budget_match.group(1) if ops_budget_match else "0"
+
+pass1_match = re.search(r"\[timing\]\s+pass1 render\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*s", text)
+pass1_time = pass1_match.group(1) if pass1_match else "0"
+
+compaction_match = re.search(r"\[timing\]\s+cpu compaction\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*s", text)
+compaction_time = compaction_match.group(1) if compaction_match else "0"
+
+pass2_match = re.search(r"\[timing\]\s+pass2 render\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*s", text)
+pass2_time = pass2_match.group(1) if pass2_match else "0"
+
+active_match = re.search(r"\[timing\]\s+active rays after p1\s*:\s*([0-9,]+)", text)
+active_rays = active_match.group(1).replace(",", "") if active_match else "0"
+
 with open(csv_file, "a", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
     writer.writerow(
@@ -55,6 +77,12 @@ with open(csv_file, "a", newline="", encoding="utf-8") as f:
             render_time,
             total_rays,
             throughput,
+            wavefront_enabled,
+            ops_budget,
+            pass1_time,
+            compaction_time,
+            pass2_time,
+            active_rays,
             log_file,
         ]
     )
@@ -67,6 +95,8 @@ run_case() {
     local scene="$3"
     local block_x="$4"
     local block_y="$5"
+    local wavefront_enabled="${6:-}"
+    local ops_budget="${7:-}"
 
     local log_file="$OUT_DIR/${case_name}.log"
     local block_label="${block_x}x${block_y}"
@@ -82,13 +112,20 @@ run_case() {
         cmd+=(--block-x "$block_x" --block-y "$block_y")
     fi
 
-    if RT_SCENE_NAME="$scene" \
-        RT_USE_BVH_CACHE=1 \
-        RT_DENOISE=0 \
+    local -a env_cmd
+    env_cmd=(env "RT_SCENE_NAME=$scene" "RT_USE_BVH_CACHE=1" "RT_DENOISE=0")
+    if [[ -n "$wavefront_enabled" ]]; then
+        env_cmd+=("RT_WAVEFRONT_ENABLED=$wavefront_enabled")
+    fi
+    if [[ -n "$ops_budget" ]]; then
+        env_cmd+=("RT_BVH_OPS_BUDGET=$ops_budget")
+    fi
+
+    if "${env_cmd[@]}" \
         "${cmd[@]}" \
             > "$log_file" 2>&1; then
         parse_metrics_to_csv "$case_name" "$mode" "$scene" "$block_x" "$block_y" "$log_file" "$CSV_FILE" "OK"
-        grep "\[metrics\]" "$log_file" || true
+        grep "\[metrics\]\|\[timing\] pass1 render\|\[timing\] cpu compaction\|\[timing\] pass2 render\|\[timing\] active rays after p1" "$log_file" || true
     else
         local rc="$?"
         parse_metrics_to_csv "$case_name" "$mode" "$scene" "$block_x" "$block_y" "$log_file" "$CSV_FILE" "FAILED($rc)"
@@ -132,9 +169,15 @@ if [[ "$RUN_CPU" == "1" ]]; then
 fi
 
 if [[ "$RUN_GPU" == "1" ]]; then
-    run_case "gpu_${DRAGON_SCENE}_8x8" "gpu" "$DRAGON_SCENE" "8" "8"
-    run_case "gpu_${DRAGON_SCENE}_16x16" "gpu" "$DRAGON_SCENE" "16" "16"
-    run_case "gpu_${DRAGON_SCENE}_32x32" "gpu" "$DRAGON_SCENE" "32" "32"
+    # Megakernel baselines (wavefront disabled) for direct comparison.
+    run_case "gpu_${DRAGON_SCENE}_8x8" "gpu" "$DRAGON_SCENE" "8" "8" "0"
+    run_case "gpu_${DRAGON_SCENE}_16x16" "gpu" "$DRAGON_SCENE" "16" "16" "0"
+    run_case "gpu_${DRAGON_SCENE}_32x32" "gpu" "$DRAGON_SCENE" "32" "32" "0"
+
+    # Wavefront sweep at fixed 16x16 to find compute/memory sweet spot.
+    for ops_budget in 100 300 500 1000 2000 4000 8000; do
+        run_case "gpu_${DRAGON_SCENE}_16x16_wavefront_b${ops_budget}" "gpu" "$DRAGON_SCENE" "16" "16" "1" "$ops_budget"
+    done
 fi
 
 echo "\nBaseline benchmark completed."

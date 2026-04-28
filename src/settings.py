@@ -50,6 +50,11 @@ EXECUTION_CONFIG = {
     "gpu_block": (GPU_BLOCK_X, GPU_BLOCK_Y),
 }
 
+WAVEFRONT_ENABLED = _env_bool("RT_WAVEFRONT_ENABLED", True)
+BVH_OPS_BUDGET = int(os.getenv("RT_BVH_OPS_BUDGET", "500"))
+if BVH_OPS_BUDGET <= 0:
+    raise ValueError(f"RT_BVH_OPS_BUDGET must be > 0, got {BVH_OPS_BUDGET}")
+
 # for CPU njit python run:
 CPU_DIMENSION = 800
 # for GPU runs:

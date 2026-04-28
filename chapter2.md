@@ -69,3 +69,27 @@ The CSV contains two kernel IDs:
   - improving data locality/coalescing for traversal/material fetches,
   - considering wavefront/path compaction in later architecture iterations.
 
+## Wavefront Architecture Parameter Sweep Results
+
+To address the severe thread divergence identified during profiling, a 2-pass Wavefront (Stream Compaction) architecture was implemented. A parameter sweep was conducted on the newly adopted `RT_BVH_OPS_BUDGET` to evaluate the tradeoff between compute efficiency (resolving short paths early) and VRAM bandwidth overhead.
+
+### Baseline Megakernel vs. Wavefront (16x16 Block Size, Dragon Scene)
+
+| Case                              | Ops Budget | Total Render Time (s) | Throughput (MRays/s) | Pass 1 Time | Compaction | Pass 2 Time | Active Rays Compacted |
+| :-------------------------------- | :--------- | :-------------------- | :------------------- | :---------- | :--------- | :---------- | :-------------------- |
+| **gpu_dragon_8x8 (megakernel)**   | n/a        | 0.2814                | 8.922                | -           | -          | -           | -                     |
+| **gpu_dragon_16x16 (megakernel)** | n/a        | 0.3097                | 8.107                | -           | -          | -           | -                     |
+| Wavefront                         | 100        | 0.4326                | 5.802                | 0.0080s     | 0.0014s    | 0.4233s     | 573,774               |
+| Wavefront                         | 300        | 0.4316                | 5.814                | 0.0177s     | 0.0015s    | 0.4124s     | 571,940               |
+| Wavefront                         | 500        | 0.4316                | 5.818                | 0.0273s     | 0.0011s    | 0.4031s     | 485,467               |
+| Wavefront                         | 1000       | FAILED(1)             | -                    | -           | -          | -           | -                     |
+| Wavefront                         | 2000       | 0.4214                | 5.956                | 0.0935s     | 0.0011s    | 0.3269s     | 256,292               |
+| Wavefront                         | 4000       | 0.3941                | 6.367                | 0.1646s     | 0.0010s    | 0.2286s     | 199,095               |
+| Wavefront                         | 8000       | 0.3577                | 7.016                | 0.2543s     | 0.0008s    | 0.1026s     | 86,147                |
+
+### Observations on Wavefront Performance
+
+- **Memory Overhead Limits Gains**: While the stream compaction effectively removes inactive threads and addresses warp divergence for Pass 2, the memory read/write overhead required to spill and reload ray states to global arrays is currently higher than the compute throughput gained. The standard 8x8 and 16x16 megakernels still outperform the Wavefront approach (0.28s and 0.31s vs the best Wavefront time of 0.36s).
+- **Sweet Spot**: The fastest Wavefront configuration tested was `b8000`, running in 0.3577s. As the budget increases, Pass 1 takes longer and handles more rays to completion natively, drastically reducing the number of `active_rays_compacted` (from ~573k at `b100` down to ~86k at `b8000`) and the subsequent burden on Pass 2.
+- **Failures**: The `b1000` run failed, highlighting limits and potential edge cases within the given architecture or hardware that may arise at specific cutoff points.
+

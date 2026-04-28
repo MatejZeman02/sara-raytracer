@@ -18,6 +18,7 @@ from PIL import Image
 
 from .bvh import build_bvh
 from .render_kernel import render_kernel
+from .wavefront_kernel import render_kernel_pass1, render_kernel_pass2
 from .constants import (
     BLOCK_THREADS,
     SEED,
@@ -27,6 +28,7 @@ from .constants import (
     PRIMARY_RAY,
     SECONDARY_RAY,
     SHADOW_RAY,
+    WF_STATUS_ACTIVE,
 )
 from .settings import (
     CPU_DIMENSION,
@@ -42,6 +44,8 @@ from .settings import (
     PRINT_STATS,
     IMG_FORMAT,
     SCENE_NAME,
+    WAVEFRONT_ENABLED,
+    BVH_OPS_BUDGET,
 )
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
@@ -78,6 +82,162 @@ def run_render_timed(manager, grid, threads, data_context):
     manager.run(grid, threads, data_context, measure_time=False)
     t1 = time.perf_counter()
     return t1 - t0
+
+
+def _to_device_array(value):
+    """Move numpy arrays to the active CUDA device; keep scalars as-is."""
+    if hasattr(value, "copy_to_host"):
+        return value
+    if isinstance(value, np.ndarray):
+        return cuda.to_device(value)
+    return value
+
+
+def allocate_wavefront_state(num_pixels):
+    """Allocate global ray-state buffers used for stream compaction passes."""
+    assert DEVICE == "gpu"
+    assert num_pixels > 0
+
+    zeros_vec = np.zeros((num_pixels, 3), dtype=np.float32)
+    zeros_i32 = np.zeros(num_pixels, dtype=np.int32)
+    ones_i32 = np.ones(num_pixels, dtype=np.int32)
+
+    return {
+        "ray_o": cuda.to_device(zeros_vec.copy()),
+        "ray_d": cuda.to_device(zeros_vec.copy()),
+        "accum_color": cuda.to_device(zeros_vec.copy()),
+        "sample_color": cuda.to_device(zeros_vec.copy()),
+        "throughput": cuda.to_device(zeros_vec.copy()),
+        "current_sample": cuda.to_device(zeros_i32.copy()),
+        "current_bounce": cuda.to_device(zeros_i32.copy()),
+        "in_path": cuda.to_device(zeros_i32.copy()),
+        "status": cuda.to_device(ones_i32),
+    }
+
+
+def run_wavefront_render_timed(
+    scene,
+    fb_hdr,
+    out_stats,
+    width,
+    height,
+    rng_states,
+    emissive_tris,
+    num_emissive,
+):
+    """Execute wavefront rendering in two passes with host-side compaction telemetry."""
+    assert DEVICE == "gpu"
+    assert render_kernel_pass1 is not None and render_kernel_pass2 is not None
+
+    width_i32 = np.int32(width)
+    height_i32 = np.int32(height)
+    num_pixels = int(width_i32) * int(height_i32)
+
+    state = allocate_wavefront_state(num_pixels)
+
+    threads_2d = (GPU_BLOCK_X, GPU_BLOCK_Y)
+    grid_2d = (
+        math.ceil(int(width_i32) / threads_2d[0]),
+        math.ceil(int(height_i32) / threads_2d[1]),
+    )
+
+    pass1_t0 = time.perf_counter()
+    render_kernel_pass1[grid_2d, threads_2d](
+        scene["triangles"],
+        scene["tri_normals"],
+        scene["tri_uvs"],
+        scene["mat_indices"],
+        scene["materials"],
+        scene["mat_diffuse_tex_ids"],
+        scene["diffuse_textures"],
+        scene["tex_widths"],
+        scene["tex_heights"],
+        scene["bvh_nodes"],
+        scene["use_bvh"],
+        scene["p00"],
+        scene["qw"],
+        scene["qh"],
+        scene["origin"],
+        fb_hdr,
+        out_stats,
+        width_i32,
+        height_i32,
+        rng_states,
+        emissive_tris,
+        num_emissive,
+        np.int32(BVH_OPS_BUDGET),
+        state["ray_o"],
+        state["ray_d"],
+        state["accum_color"],
+        state["sample_color"],
+        state["throughput"],
+        state["current_sample"],
+        state["current_bounce"],
+        state["in_path"],
+        state["status"],
+    )
+    cuda.synchronize()
+    pass1_time = time.perf_counter() - pass1_t0
+
+    compaction_t0 = time.perf_counter()
+    status_host = state["status"].copy_to_host()
+    active_idx_host = np.where(status_host == WF_STATUS_ACTIVE)[0].astype(np.int32)
+    compaction_time = time.perf_counter() - compaction_t0
+
+    pass2_time = 0.0
+    active_count = int(active_idx_host.size)
+    if active_count > 0:
+        active_idx_dev = cuda.to_device(active_idx_host)
+        threads_1d = 256
+        grid_1d = math.ceil(active_count / threads_1d)
+
+        pass2_t0 = time.perf_counter()
+        render_kernel_pass2[grid_1d, threads_1d](
+            active_idx_dev,
+            np.int32(active_count),
+            scene["triangles"],
+            scene["tri_normals"],
+            scene["tri_uvs"],
+            scene["mat_indices"],
+            scene["materials"],
+            scene["mat_diffuse_tex_ids"],
+            scene["diffuse_textures"],
+            scene["tex_widths"],
+            scene["tex_heights"],
+            scene["bvh_nodes"],
+            scene["use_bvh"],
+            scene["p00"],
+            scene["qw"],
+            scene["qh"],
+            scene["origin"],
+            fb_hdr,
+            out_stats,
+            width_i32,
+            height_i32,
+            rng_states,
+            emissive_tris,
+            num_emissive,
+            state["ray_o"],
+            state["ray_d"],
+            state["accum_color"],
+            state["sample_color"],
+            state["throughput"],
+            state["current_sample"],
+            state["current_bounce"],
+            state["in_path"],
+            state["status"],
+        )
+        cuda.synchronize()
+        pass2_time = time.perf_counter() - pass2_t0
+
+    total_time = pass1_time + compaction_time + pass2_time
+    return {
+        "pass1_render_s": pass1_time,
+        "cpu_compaction_s": compaction_time,
+        "pass2_render_s": pass2_time,
+        "total_render_s": total_time,
+        "active_rays_after_pass1": active_count,
+    }
 
 
 def calculate_render_metrics(stats, render_time):
@@ -352,6 +512,9 @@ def main():
     else:
         print(f"Runs on device: GPU ({GPU_BLOCK_X}x{GPU_BLOCK_Y} threads/block)")
     print(f"[config] execution mode      : {EXECUTION_MODE}")
+    print(f"[config] wavefront enabled   : {WAVEFRONT_ENABLED}")
+    if WAVEFRONT_ENABLED:
+        print(f"[config] bvh ops budget      : {BVH_OPS_BUDGET}")
     t = _phase_time("init python", t_start)
 
     width_host = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
@@ -405,23 +568,129 @@ def main():
     rng_count = np.int32(width) * np.int32(height)
     rng_states = create_rng_states(int(rng_count), seed=int(np.uint64(SEED)))
 
-    manager = KernelManager(render_kernel)
+    use_wavefront = DEVICE == "gpu" and WAVEFRONT_ENABLED
     use_bvh = True
-    manager.precompile_run(locals())
+    wavefront_timings = None
 
-    if DEVICE == "gpu":
-        threads = (GPU_BLOCK_X, GPU_BLOCK_Y)
-        grid = (
-            math.ceil(int(width) / threads[0]),
-            math.ceil(int(height) / threads[1]),
+    if use_wavefront:
+        if render_kernel_pass1 is None or render_kernel_pass2 is None:
+            raise RuntimeError("Wavefront kernels are unavailable in current mode")
+
+        scene_wavefront = {
+            "triangles": _to_device_array(triangles),
+            "tri_normals": _to_device_array(tri_normals),
+            "tri_uvs": _to_device_array(tri_uvs),
+            "mat_indices": _to_device_array(mat_indices),
+            "materials": _to_device_array(materials),
+            "mat_diffuse_tex_ids": _to_device_array(mat_diffuse_tex_ids),
+            "diffuse_textures": _to_device_array(diffuse_textures),
+            "tex_widths": _to_device_array(tex_widths),
+            "tex_heights": _to_device_array(tex_heights),
+            "bvh_nodes": _to_device_array(bvh_nodes),
+            "use_bvh": use_bvh,
+            "p00": _to_device_array(p00),
+            "qw": _to_device_array(qw),
+            "qh": _to_device_array(qh),
+            "origin": _to_device_array(origin),
+        }
+        emissive_tris_dev = _to_device_array(emissive_tris)
+
+        # Warmup launch to compile both passes and keep render telemetry clean.
+        warmup_fb = cuda.device_array((1, 1, 3), dtype=np.float32)
+        warmup_stats = cuda.device_array((1, 1, 5), dtype=np.int32)
+        warmup_rng = create_rng_states(1, seed=int(np.uint64(SEED)))
+        warmup_state = allocate_wavefront_state(1)
+
+        render_kernel_pass1[(1, 1), (1, 1)](
+            scene_wavefront["triangles"],
+            scene_wavefront["tri_normals"],
+            scene_wavefront["tri_uvs"],
+            scene_wavefront["mat_indices"],
+            scene_wavefront["materials"],
+            scene_wavefront["mat_diffuse_tex_ids"],
+            scene_wavefront["diffuse_textures"],
+            scene_wavefront["tex_widths"],
+            scene_wavefront["tex_heights"],
+            scene_wavefront["bvh_nodes"],
+            True,
+            scene_wavefront["p00"],
+            scene_wavefront["qw"],
+            scene_wavefront["qh"],
+            scene_wavefront["origin"],
+            warmup_fb,
+            warmup_stats,
+            np.int32(1),
+            np.int32(1),
+            warmup_rng,
+            emissive_tris_dev,
+            num_emissive,
+            np.int32(1),
+            warmup_state["ray_o"],
+            warmup_state["ray_d"],
+            warmup_state["accum_color"],
+            warmup_state["sample_color"],
+            warmup_state["throughput"],
+            warmup_state["current_sample"],
+            warmup_state["current_bounce"],
+            warmup_state["in_path"],
+            warmup_state["status"],
         )
+
+        warmup_active = cuda.to_device(np.zeros(1, dtype=np.int32))
+        render_kernel_pass2[1, 1](
+            warmup_active,
+            np.int32(0),
+            scene_wavefront["triangles"],
+            scene_wavefront["tri_normals"],
+            scene_wavefront["tri_uvs"],
+            scene_wavefront["mat_indices"],
+            scene_wavefront["materials"],
+            scene_wavefront["mat_diffuse_tex_ids"],
+            scene_wavefront["diffuse_textures"],
+            scene_wavefront["tex_widths"],
+            scene_wavefront["tex_heights"],
+            scene_wavefront["bvh_nodes"],
+            True,
+            scene_wavefront["p00"],
+            scene_wavefront["qw"],
+            scene_wavefront["qh"],
+            scene_wavefront["origin"],
+            warmup_fb,
+            warmup_stats,
+            np.int32(1),
+            np.int32(1),
+            warmup_rng,
+            emissive_tris_dev,
+            num_emissive,
+            warmup_state["ray_o"],
+            warmup_state["ray_d"],
+            warmup_state["accum_color"],
+            warmup_state["sample_color"],
+            warmup_state["throughput"],
+            warmup_state["current_sample"],
+            warmup_state["current_bounce"],
+            warmup_state["in_path"],
+            warmup_state["status"],
+        )
+        cuda.synchronize()
     else:
-        # CPU path ignores grid and block in KernelManager.
-        threads = (BLOCK_THREADS, BLOCK_THREADS)
-        grid = (1, 1)
+        manager = KernelManager(render_kernel)
+        manager.precompile_run(locals())
+
+        if DEVICE == "gpu":
+            threads = (GPU_BLOCK_X, GPU_BLOCK_Y)
+            grid = (
+                math.ceil(int(width) / threads[0]),
+                math.ceil(int(height) / threads[1]),
+            )
+        else:
+            # CPU path ignores grid and block in KernelManager.
+            threads = (BLOCK_THREADS, BLOCK_THREADS)
+            grid = (1, 1)
+
     t = _phase_time("jit compile run", t)
 
-    if RENDER_NON_BVH_STATS:
+    if RENDER_NON_BVH_STATS and not use_wavefront:
         use_bvh = False
         brute_render_time = run_render_timed(manager, grid, threads, locals())
         brute_fps = (1.0 / brute_render_time) if brute_render_time > 0.0 else 0.0
@@ -439,13 +708,48 @@ def main():
 
         # reallocate buffers for the actual run
         fb_hdr, out_stats = allocate_buffers(width_host, height_host)
+    elif RENDER_NON_BVH_STATS and use_wavefront:
+        warnings.warn(
+            "RENDER_NON_BVH_STATS is ignored in wavefront mode.",
+            RuntimeWarning,
+        )
 
     use_bvh = True
     if DEVICE == "gpu":
         cuda.profile_start()
-    kernel_render_time = run_render_timed(manager, grid, threads, locals())
+
+    if use_wavefront:
+        scene_wavefront["use_bvh"] = use_bvh
+        wavefront_timings = run_wavefront_render_timed(
+            scene_wavefront,
+            fb_hdr,
+            out_stats,
+            width,
+            height,
+            rng_states,
+            emissive_tris_dev,
+            num_emissive,
+        )
+        kernel_render_time = wavefront_timings["total_render_s"]
+    else:
+        kernel_render_time = run_render_timed(manager, grid, threads, locals())
+
     if DEVICE == "gpu":
         cuda.profile_stop()
+
+    if wavefront_timings is not None:
+        print(
+            f"[timing] {'pass1 render':<20}: {wavefront_timings['pass1_render_s']:7.4f} s"
+        )
+        print(
+            f"[timing] {'cpu compaction':<20}: {wavefront_timings['cpu_compaction_s']:7.4f} s"
+        )
+        print(
+            f"[timing] {'pass2 render':<20}: {wavefront_timings['pass2_render_s']:7.4f} s"
+        )
+        print(
+            f"[timing] {'active rays after p1':<20}: {wavefront_timings['active_rays_after_pass1']}"
+        )
 
     render_fps = (1.0 / kernel_render_time) if kernel_render_time > 0.0 else 0.0
     print(
