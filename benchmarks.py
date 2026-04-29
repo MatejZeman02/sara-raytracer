@@ -3,7 +3,6 @@ import subprocess
 import datetime
 import re
 import csv
-
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -58,8 +57,8 @@ p_p2 = re.compile(r"\[timing\]\s+pass2 render\s*:\s*([0-9]+(?:\.[0-9]+)?)\s*s")
 p_ar = re.compile(r"\[timing\]\s+active rays after p1\s*:\s*([0-9,]+)")
 
 
-def run_case(case_name, block_size, wf_en=0, budget=0):
-    """run a single benchmark configuration"""
+def run_case(case_name, block_size, wf_en=0, budget=0, iters=5):
+    """run a single benchmark configuration multiple times and aggregate"""
     log_path = out_dir / f"{case_name}.log"
     env = os.environ.copy()
     env.update(
@@ -86,48 +85,93 @@ def run_case(case_name, block_size, wf_en=0, budget=0):
     ]
 
     print(
-        f"running {case_name} (block: {block_size}x{block_size}, wf: {wf_en}, budget: {budget})..."
+        f"running {case_name} (block: {block_size}x{block_size}, wf: {wf_en}, budget: {budget}) - {iters} iterations..."
     )
 
-    result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-    log_path.write_text(result.stdout + "\n" + result.stderr)
+    # wipe previous log if it exists
+    log_path.write_text("")
 
-    status = "OK" if result.returncode == 0 else f"FAILED({result.returncode})"
-    text = result.stdout
+    metrics = {
+        "time": [],
+        "rays": [],
+        "thr": [],
+        "p1": [],
+        "cp": [],
+        "p2": [],
+        "ar": [],
+    }
+    status = "OK"
 
-    times = p_time.findall(text)
-    rays = p_rays.search(text)
-    thr = p_thr.search(text)
-    p1 = p_p1.search(text)
-    cp = p_cp.search(text)
-    p2 = p_p2.search(text)
-    ar = p_ar.search(text)
+    for i in range(iters):
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
 
-    row = [
-        case_name,
-        "gpu",
-        "dragon",
-        str(block_size),
-        str(block_size),
-        status,
-        times[-1] if times else "",
-        rays.group(1).replace(",", "") if rays else "",
-        thr.group(1) if thr else "",
-        str(wf_en),
-        str(budget),
-        p1.group(1) if p1 else "0",
-        cp.group(1) if cp else "0",
-        p2.group(1) if p2 else "0",
-        ar.group(1).replace(",", "") if ar else "0",
-        str(log_path),
-    ]
+        # append output of this specific iteration to the combined log
+        with open(log_path, "a", encoding="utf-8") as lf:
+            lf.write(f"\n--- iteration {i+1} ---\n")
+            lf.write(result.stdout + "\n" + result.stderr)
+
+        if result.returncode != 0:
+            status = f"FAILED({result.returncode})"
+            break
+
+        text = result.stdout
+
+        t = p_time.findall(text)
+        r = p_rays.search(text)
+        th = p_thr.search(text)
+        p1 = p_p1.search(text)
+        cp = p_cp.search(text)
+        p2 = p_p2.search(text)
+        ar = p_ar.search(text)
+
+        if t:
+            metrics["time"].append(float(t[-1]))
+        if r:
+            metrics["rays"].append(float(r.group(1).replace(",", "")))
+        if th:
+            metrics["thr"].append(float(th.group(1)))
+        if p1:
+            metrics["p1"].append(float(p1.group(1)))
+        if cp:
+            metrics["cp"].append(float(cp.group(1)))
+        if p2:
+            metrics["p2"].append(float(p2.group(1)))
+        if ar:
+            metrics["ar"].append(float(ar.group(1).replace(",", "")))
+
+    # use median to filter out random os stutters
+    if status == "OK" and metrics["time"]:
+        row = [
+            case_name,
+            "gpu",
+            "dragon",
+            str(block_size),
+            str(block_size),
+            status,
+            f"{numpy.median(metrics['time']):.4f}",
+            str(int(numpy.median(metrics["rays"]))) if metrics["rays"] else "",
+            f"{numpy.median(metrics['thr']):.3f}" if metrics["thr"] else "",
+            str(wf_en),
+            str(budget),
+            f"{numpy.median(metrics['p1']):.4f}" if metrics["p1"] else "0",
+            f"{numpy.median(metrics['cp']):.4f}" if metrics["cp"] else "0",
+            f"{numpy.median(metrics['p2']):.4f}" if metrics["p2"] else "0",
+            str(int(numpy.median(metrics["ar"]))) if metrics["ar"] else "0",
+            str(log_path),
+        ]
+    else:
+        row = (
+            [case_name, "gpu", "dragon", str(block_size), str(block_size), status]
+            + [""] * 9
+            + [str(log_path)]
+        )
 
     with open(csv_file, "a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(row)
 
 
 def plot_results():
-    """generate comparison plot"""
+    # generate comparison plot
     budgets = []
     p1_times = []
     comp_times = []
@@ -231,21 +275,38 @@ def plot_results():
     print(f"graph saved to {out_png}")
 
 
-############### MAIN ###############
-
 if __name__ == "__main__":
     print(f"starting benchmark on {gpu_name}")
+
+    # prewarm only needs to run once
     print("prewarming jit...")
-    run_case("prewarm", 16, 0, 9999)
+    run_case("prewarm", 16, 0, 9999, iters=1)
 
     print("running megakernel baselines...")
-    run_case("gpu_dragon_8x8", 8, 0, 99999)
-    run_case("gpu_dragon_16x16", 16, 0, 99999)
-    run_case("gpu_dragon_32x32", 32, 0, 99999)
+    run_case("gpu_dragon_8x8", 8, 0, 99999, iters=5)
+    run_case("gpu_dragon_16x16", 16, 0, 99999, iters=5)
+    run_case("gpu_dragon_32x32", 32, 0, 99999, iters=1)
 
     print("running wavefront budget sweep (16x16)...")
-    for b in [16, 32, 64, 128, 256, 512, 1024, 2048, 4000, 6000, 8000, 10_000, 16000, 32000]:
-        run_case(f"gpu_dragon_16x16_wf_{b}", 16, 1, b)
+    for b in [
+        16,
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        2048,
+        4000,
+        5000,
+        6000,
+        7000,
+        8000,
+        10_000,
+        16000,
+        32000,
+    ]:
+        run_case(f"gpu_dragon_16x16_wf_{b}", 16, 1, b, iters=5)
 
     plot_results()
 
