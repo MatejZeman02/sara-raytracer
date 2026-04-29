@@ -46,6 +46,10 @@ from .settings import (
     SCENE_NAME,
     WAVEFRONT_ENABLED,
     BVH_OPS_BUDGET,
+    WAVEFRONT_SORTING,
+    WAVEFRONT_SORT_METRIC,
+    WAVEFRONT_SORT_BACKEND,
+    WAVEFRONT_SORT_DIR_BITS,
 )
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
@@ -93,6 +97,110 @@ def _to_device_array(value):
     return value
 
 
+def _pack_ray_dir_keys_numpy(ray_dirs: np.ndarray, bits: int) -> np.ndarray:
+    levels = (1 << bits) - 1
+    levels_f = np.float32(levels)
+    dirs = ray_dirs.astype(np.float32, copy=False)
+    dirs = np.clip(
+        dirs * np.float32(0.5) + np.float32(0.5),
+        np.float32(0.0),
+        np.float32(1.0),
+    )
+    q = np.floor(dirs * levels_f + np.float32(0.5)).astype(np.uint32)
+    return (q[:, 0] << (2 * bits)) | (q[:, 1] << bits) | q[:, 2]
+
+
+def _sort_active_indices_numpy(state, active_idx_host, metric, bits):
+    if metric == "material":
+        mat_id_host = state["mat_id"].copy_to_host()
+        keys = mat_id_host[active_idx_host]
+    else:
+        ray_d_host = state["ray_d"].copy_to_host()
+        keys = _pack_ray_dir_keys_numpy(ray_d_host[active_idx_host], bits)
+    order = np.argsort(keys, kind="stable")
+    return active_idx_host[order]
+
+
+def _try_import_cupy():
+    try:
+        import cupy as cp
+    except Exception:
+        return None
+    return cp
+
+
+def _pack_ray_dir_keys_cupy(ray_dirs, bits, cp):
+    levels = (1 << bits) - 1
+    levels_f = cp.float32(levels)
+    dirs = ray_dirs.astype(cp.float32, copy=False)
+    dirs = cp.clip(dirs * cp.float32(0.5) + cp.float32(0.5), 0.0, 1.0)
+    q = cp.floor(dirs * levels_f + cp.float32(0.5)).astype(cp.uint32)
+    return (q[:, 0] << (2 * bits)) | (q[:, 1] << bits) | q[:, 2]
+
+
+def _sort_active_indices_cupy(state, active_idx_host, metric, bits, cp):
+    active_idx_dev = cp.asarray(active_idx_host)
+    if metric == "material":
+        mat_id_dev = cp.asarray(state["mat_id"])
+        keys = mat_id_dev[active_idx_dev]
+    else:
+        ray_d_dev = cp.asarray(state["ray_d"])
+        keys = _pack_ray_dir_keys_cupy(ray_d_dev[active_idx_dev], bits, cp)
+    order = cp.argsort(keys)
+    return active_idx_dev[order]
+
+
+def _sort_active_indices(state, active_idx_host):
+    if active_idx_host.size <= 1:
+        return active_idx_host, False
+
+    metric = WAVEFRONT_SORT_METRIC
+    backend = WAVEFRONT_SORT_BACKEND
+
+    if backend == "auto":
+        cp = _try_import_cupy()
+        if cp is not None:
+            return (
+                _sort_active_indices_cupy(
+                    state, active_idx_host, metric, WAVEFRONT_SORT_DIR_BITS, cp
+                ),
+                True,
+            )
+        return (
+            _sort_active_indices_numpy(
+                state, active_idx_host, metric, WAVEFRONT_SORT_DIR_BITS
+            ),
+            False,
+        )
+
+    if backend == "cupy":
+        cp = _try_import_cupy()
+        if cp is None:
+            warnings.warn(
+                "cupy sort backend requested but cupy is not available; falling back to numpy.",
+                RuntimeWarning,
+            )
+            return (
+                _sort_active_indices_numpy(
+                    state, active_idx_host, metric, WAVEFRONT_SORT_DIR_BITS
+                ),
+                False,
+            )
+        return (
+            _sort_active_indices_cupy(
+                state, active_idx_host, metric, WAVEFRONT_SORT_DIR_BITS, cp
+            ),
+            True,
+        )
+
+    return (
+        _sort_active_indices_numpy(
+            state, active_idx_host, metric, WAVEFRONT_SORT_DIR_BITS
+        ),
+        False,
+    )
+
+
 def allocate_wavefront_state(num_pixels):
     """Allocate global ray-state buffers used for stream compaction passes."""
     assert DEVICE == "gpu"
@@ -100,6 +208,7 @@ def allocate_wavefront_state(num_pixels):
 
     zeros_vec = np.zeros((num_pixels, 3), dtype=np.float32)
     zeros_i32 = np.zeros(num_pixels, dtype=np.int32)
+    neg_ones_i32 = np.full(num_pixels, -1, dtype=np.int32)
     ones_i32 = np.ones(num_pixels, dtype=np.int32)
 
     return {
@@ -111,6 +220,7 @@ def allocate_wavefront_state(num_pixels):
         "current_sample": cuda.to_device(zeros_i32.copy()),
         "current_bounce": cuda.to_device(zeros_i32.copy()),
         "in_path": cuda.to_device(zeros_i32.copy()),
+        "mat_id": cuda.to_device(neg_ones_i32),
         "status": cuda.to_device(ones_i32),
     }
 
@@ -174,6 +284,7 @@ def run_wavefront_render_timed(
         state["current_sample"],
         state["current_bounce"],
         state["in_path"],
+        state["mat_id"],
         state["status"],
     )
     cuda.synchronize()
@@ -182,14 +293,22 @@ def run_wavefront_render_timed(
     compaction_t0 = time.perf_counter()
     status_host = state["status"].copy_to_host()
     active_idx_host = np.where(status_host == WF_STATUS_ACTIVE)[0].astype(np.int32)
+    active_idx_dev = None
+    active_count = int(active_idx_host.size)
+    if WAVEFRONT_SORTING and active_count > 1:
+        sorted_idx, is_device_sorted = _sort_active_indices(state, active_idx_host)
+        if is_device_sorted:
+            active_idx_dev = cuda.as_cuda_array(sorted_idx)
+        else:
+            active_idx_host = sorted_idx
     compaction_time = time.perf_counter() - compaction_t0
 
     pass2_time = 0.0
-    active_count = int(active_idx_host.size)
     if active_count > 0:
-        active_idx_dev = cuda.to_device(active_idx_host)
-        threads_1d = 256
-        grid_1d = math.ceil(active_count / threads_1d)
+        if active_idx_dev is None:
+            active_idx_dev = cuda.to_device(active_idx_host)
+        threads_1d = 256 if active_count >= 256 else 128
+        grid_1d = (active_count + threads_1d - 1) // threads_1d
 
         pass2_t0 = time.perf_counter()
         render_kernel_pass2[grid_1d, threads_1d](
@@ -225,6 +344,7 @@ def run_wavefront_render_timed(
             state["current_sample"],
             state["current_bounce"],
             state["in_path"],
+            state["mat_id"],
             state["status"],
         )
         cuda.synchronize()
@@ -515,6 +635,12 @@ def main():
     print(f"[config] wavefront enabled   : {WAVEFRONT_ENABLED}")
     if WAVEFRONT_ENABLED:
         print(f"[config] bvh ops budget      : {BVH_OPS_BUDGET}")
+        print(f"[config] wavefront sorting  : {WAVEFRONT_SORTING}")
+        if WAVEFRONT_SORTING:
+            print(f"[config] sort metric        : {WAVEFRONT_SORT_METRIC}")
+            print(f"[config] sort backend       : {WAVEFRONT_SORT_BACKEND}")
+            if WAVEFRONT_SORT_METRIC == "ray_dir":
+                print(f"[config] sort dir bits      : {WAVEFRONT_SORT_DIR_BITS}")
     t = _phase_time("init python", t_start)
 
     width_host = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
@@ -633,6 +759,7 @@ def main():
             warmup_state["current_sample"],
             warmup_state["current_bounce"],
             warmup_state["in_path"],
+            warmup_state["mat_id"],
             warmup_state["status"],
         )
 
@@ -670,6 +797,7 @@ def main():
             warmup_state["current_sample"],
             warmup_state["current_bounce"],
             warmup_state["in_path"],
+            warmup_state["mat_id"],
             warmup_state["status"],
         )
         cuda.synchronize()

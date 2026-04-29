@@ -41,7 +41,6 @@ from framebuffer import write_hdr_to_fb
 from lights import sample_area_light
 from rng import rand_float32
 
-
 render_kernel_pass1 = None
 render_kernel_pass2 = None
 
@@ -68,6 +67,7 @@ def _save_wavefront_state(
     state_sample_idx,
     state_bounce_idx,
     state_in_path,
+    state_mat_id,
     state_status,
     pixel_idx,
     ray_origin,
@@ -84,6 +84,7 @@ def _save_wavefront_state(
     sample_idx,
     bounce,
     in_path,
+    mat_id,
     status,
 ):
     _store_vec3(
@@ -106,6 +107,7 @@ def _save_wavefront_state(
     state_sample_idx[pixel_idx] = sample_idx
     state_bounce_idx[pixel_idx] = bounce
     state_in_path[pixel_idx] = in_path
+    state_mat_id[pixel_idx] = mat_id
     state_status[pixel_idx] = status
 
 
@@ -145,6 +147,7 @@ if DEVICE == "gpu":
         state_sample_idx,
         state_bounce_idx,
         state_in_path,
+        state_mat_id,
         state_status,
         pixel_idx,
         x,
@@ -179,6 +182,7 @@ if DEVICE == "gpu":
         sample_idx = state_sample_idx[pixel_idx]
         bounce = state_bounce_idx[pixel_idx]
         in_path = state_in_path[pixel_idx]
+        last_mat_idx = int32(-1)
 
         while sample_idx < SAMPLES:
             if in_path == int32(0):
@@ -196,6 +200,7 @@ if DEVICE == "gpu":
                 thr_b = ONE
                 bounce = int32(0)
                 in_path = int32(1)
+                last_mat_idx = int32(-1)
 
             while in_path == int32(1) and bounce < MAX_BOUNCES:
                 is_primary = bounce == int32(0)
@@ -235,6 +240,7 @@ if DEVICE == "gpu":
                     break
 
                 mat_idx = mat_indices[hit_idx]
+                last_mat_idx = mat_idx
                 em = get_emissive_color(materials, mat_idx)
                 if em[0] > ZERO or em[1] > ZERO or em[2] > ZERO:
                     sample_r += thr_r * em[0]
@@ -375,6 +381,7 @@ if DEVICE == "gpu":
                         state_sample_idx,
                         state_bounce_idx,
                         state_in_path,
+                        state_mat_id,
                         state_status,
                         pixel_idx,
                         ray_origin,
@@ -391,6 +398,7 @@ if DEVICE == "gpu":
                         sample_idx,
                         bounce,
                         in_path,
+                        last_mat_idx,
                         WF_STATUS_ACTIVE,
                     )
                     return
@@ -410,6 +418,7 @@ if DEVICE == "gpu":
                 thr_r = ONE
                 thr_g = ONE
                 thr_b = ONE
+                last_mat_idx = int32(-1)
 
             if budget_enabled and ops_used >= bvh_ops_budget and sample_idx < SAMPLES:
                 _save_wavefront_state(
@@ -421,6 +430,7 @@ if DEVICE == "gpu":
                     state_sample_idx,
                     state_bounce_idx,
                     state_in_path,
+                    state_mat_id,
                     state_status,
                     pixel_idx,
                     ray_origin,
@@ -437,6 +447,7 @@ if DEVICE == "gpu":
                     sample_idx,
                     bounce,
                     in_path,
+                    last_mat_idx,
                     WF_STATUS_ACTIVE,
                 )
                 return
@@ -459,6 +470,7 @@ if DEVICE == "gpu":
             state_sample_idx,
             state_bounce_idx,
             state_in_path,
+            state_mat_id,
             state_status,
             pixel_idx,
             ray_origin,
@@ -475,6 +487,7 @@ if DEVICE == "gpu":
             sample_idx,
             int32(0),
             int32(0),
+            int32(-1),
             WF_STATUS_DONE,
         )
 
@@ -511,6 +524,7 @@ if DEVICE == "gpu":
         state_sample_idx,
         state_bounce_idx,
         state_in_path,
+        state_mat_id,
         state_status,
     ):
         x, y = cuda.grid(2)
@@ -560,6 +574,7 @@ if DEVICE == "gpu":
             state_sample_idx,
             state_bounce_idx,
             state_in_path,
+            state_mat_id,
             state_status,
             pixel_idx,
             x_i32,
@@ -601,6 +616,7 @@ if DEVICE == "gpu":
         state_sample_idx,
         state_bounce_idx,
         state_in_path,
+        state_mat_id,
         state_status,
     ):
         tid = cuda.grid(1)
@@ -649,6 +665,7 @@ if DEVICE == "gpu":
             state_sample_idx,
             state_bounce_idx,
             state_in_path,
+            state_mat_id,
             state_status,
             pixel_idx,
             x_i32,

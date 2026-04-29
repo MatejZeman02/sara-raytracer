@@ -52,8 +52,34 @@ EXECUTION_CONFIG = {
 
 WAVEFRONT_ENABLED = _env_bool("RT_WAVEFRONT_ENABLED", True)
 BVH_OPS_BUDGET = int(os.getenv("RT_BVH_OPS_BUDGET", "500"))
-if BVH_OPS_BUDGET <= 0:
+if BVH_OPS_BUDGET <= 0 and WAVEFRONT_ENABLED:
     raise ValueError(f"RT_BVH_OPS_BUDGET must be > 0, got {BVH_OPS_BUDGET}")
+
+WAVEFRONT_SORTING = _env_bool("RT_WAVEFRONT_SORTING", True)
+_raw_sort_metric = os.getenv("RT_WAVEFRONT_SORT_METRIC", "ray_dir").strip().lower()
+if _raw_sort_metric in ("material", "material_id", "mat", "mat_id"):
+    WAVEFRONT_SORT_METRIC = "material"
+elif _raw_sort_metric in ("ray_dir", "direction", "dir"):
+    WAVEFRONT_SORT_METRIC = "ray_dir"
+else:
+    raise ValueError(
+        "RT_WAVEFRONT_SORT_METRIC must be 'material' or 'ray_dir', "
+        f"got '{_raw_sort_metric}'"
+    )
+
+WAVEFRONT_SORT_BACKEND = os.getenv("RT_WAVEFRONT_SORT_BACKEND", "auto").strip().lower()
+if WAVEFRONT_SORT_BACKEND not in ("auto", "numpy", "cupy"):
+    raise ValueError(
+        "RT_WAVEFRONT_SORT_BACKEND must be auto, numpy, or cupy, "
+        f"got '{WAVEFRONT_SORT_BACKEND}'"
+    )
+
+WAVEFRONT_SORT_DIR_BITS = int(os.getenv("RT_WF_SORT_DIR_BITS", "10"))
+if WAVEFRONT_SORT_DIR_BITS < 4 or WAVEFRONT_SORT_DIR_BITS > 10:
+    raise ValueError(
+        "RT_WF_SORT_DIR_BITS must be between 4 and 10, "
+        f"got {WAVEFRONT_SORT_DIR_BITS}"
+    )
 
 # for CPU njit python run:
 CPU_DIMENSION = 800

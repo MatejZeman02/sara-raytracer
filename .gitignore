@@ -4,6 +4,7 @@
 *debug*
 *fix*
 tmp.txt
+nvidia_smi.txt
 tmp
 
 # ignore ppm, since it is too big and not useful
@@ -14,7 +15,6 @@ tmp
 
 # Nvidia nsight report
 *.ncu-rep
-*.csv
 # ptx nvidia cuda code
 *.ptx
 
