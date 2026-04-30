@@ -1,6 +1,8 @@
+"""Ad hoc script to generate the graph for the RTX 4070 Ti Wavefront data, without the baseline comparison."""
+
 import matplotlib.pyplot as plt
 
-# Embedded RTX 4070 Ti Wavefront Data
+# Embeddeded RTX 4070 Ti Wavefront Data
 budgets = [
     16,
     32,
@@ -127,20 +129,17 @@ ax.set_title("Wavefront Stream Compaction Tradeoffs (RTX 4070 Ti)", fontsize=14,
 ax.set_xlabel("BVH Operations Budget (Pause Point)", fontsize=12)
 ax.set_ylabel("Total Render Time (Seconds)", fontsize=12)
 
-# Use log scale for X axis to spread the early low budgets
+# Log scale for X axis to spread the early low budgets
 ax.set_xscale("log")
 ax.set_xticks(budgets)
 ax.get_xaxis().set_major_formatter(plt.ScalarFormatter())
 plt.xticks(rotation=45)  # Rotate labels so they don't overlap
 
 ax.grid(True, which="both", linestyle=":", alpha=0.5)
-
-# Add Legend
 ax.legend(loc="lower right", frameon=True, shadow=True, fontsize=10)
-
 plt.tight_layout()
 
-out_png = "wavefront_behavior_4070ti.png"
+out_png = "wavefront_4070.png"
 plt.savefig(out_png, dpi=300)
 print(f"Graph successfully saved to: {out_png}")
 plt.show()

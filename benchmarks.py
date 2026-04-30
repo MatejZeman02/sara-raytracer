@@ -1,3 +1,8 @@
+"""
+Benchmarking script to run all cases and aggregate results into a csv, then generate a graph comparing
+wavefront performance across budgets and against the megakernel baseline
+"""
+
 import os
 import subprocess
 import datetime
