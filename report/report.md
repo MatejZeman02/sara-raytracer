@@ -83,7 +83,9 @@ An automated parameter sweep across the operations budget revealed a tradeoff be
 ![wavefront_4070.png](wavefront_4070.png)
 *Wavefront vs megakernel render time (nvidia_geforce_rtx_4070_ti)*
 
-As seen in the Ada Lovelace (RTX 4070 Ti) performance graph, increasing the budget shifts the workload from Pass 2 back to Pass 1. Around a budget of 4000, the total render time (0.151s) starts droping and moving to the point where Pass 2 does all the work. This appears to be faster than the split of work approach. The blame is probably on cuda synchronization after the first pass, but this could potentially scale in any direction on a scenes with different complexity and sizes. Also the megakernel approach uses a lot of registers per thread. Simple two pass run will reveal these issues even more. A budget of 8000 proved highly optimal for true Stream Compaction, successfully resolving ~97% of standard rays natively in Pass 1 and handing off only ~86,000 deep rays to Pass 2.
+As seen in the Ada Lovelace (RTX 4070 Ti) performance graph, increasing the budget shifts the workload from Pass 2 back to Pass 1. Around a budget of 4000, the total render time (0.151s) starts droping and moving to the point where Pass 2 does all the work. This appears to be faster than the split of work approach. The blame is probably on the cuda synchronization after the first pass, but this could potentially scale in any direction on a scenes with different complexity and sizes. Also the megakernel approach uses a lot of registers per thread. Simple two pass run will reveal this issue even more.
+
+A budget of 8000 proved highly optimal for true Stream Compaction, successfully resolving ~97% of standard rays natively in Pass 1 and handing off only ~86,000 deep rays to Pass 2. Looking at the times, those 3% or remaining rays computation takes almost 30% of the total render time.
 
 ### 2.4 Chaos Kernel phenomenon
 Despite the overall render time decreasing on newer hardware, profiling on Pass 2 revealed that warp efficiency actually worsened. Active threads dropped from the baseline 8.38 down to *4.68 per warp (~14.6%)*.
@@ -91,9 +93,9 @@ Despite the overall render time decreasing on newer hardware, profiling on Pass 
 This phenomenon occurs because while stream compaction successfully groups active rays together, it completely destroys spatial memory access patterns. Adjacent threads in the newly compacted array now contain rays pointing in entirely different directions, hitting opposite sides of the BVH. This maximizes memory thrashing in the L1/L2 cache and adds an extra spatial divergence, proving that packing threads without proper sorting introduces severe secondary bottlenecks.
 
 ### 2.5 Data Locality and CPU Sorting
-To resolve spatial divergence, a material sorting phase was introduced between Pass 1 and Pass 2. In fact, two sorting algorithms were tested (by material and by ray direction). Sorting by ray direction proved slightly worse in all cases so it is not being used in the benchmarks
+To resolve spatial divergence, a material sorting phase was introduced between Pass 1 and Pass 2. In fact, two sorting algorithms were tested (by material and by ray direction). Sorting by ray direction proved to be slightly worse in all cases so it is not being used in the benchmarks.
 
-Because the compacted array was relatively small, a "Skinny Round-Trip" strategy was utilized: transferring the indices to the CPU, running a dependency-free `numpy.argsort`, and transferring them back. This operation costs only a few milliseconds, proving highly viable compared to writing a native radix sort in Numba.
+Because the compacted array was relatively small, transferring the indices to the CPU, running a dependency-free `numpy.argsort`, and transferring them back operation is feasable. This operation costs only a few milliseconds, proving highly viable compared to writing a native radix sort in Numba.
 
 To ensure the hardware respects the software sorting order, Pass 2 must utilize a strictly 1D execution model (`cuda.grid(1)`) with 1D block sizes so that neighbour threads end up in the same warp. The standard 2D block geometry (e.g. 16x16) would force the scheduler to map a 2D thread grid onto sorted 1D array.
 
@@ -120,14 +122,14 @@ To determine if the NVVM compiler was aggressively optimizing loops for newer ar
 | *Predicate Registers (`%p`)*  | 160        | 182              |
 | *Float Registers (`%f`)*      | 1,244      | 1,333            |
 
-*Conclusions:*
+*Notes:*
 1. The compiler generated almost identical virtual assembly for both architectures, disproving the hypothetical compiler optimizations.
 2. The bounded kernel induced massive register pressure, jumping from 527 to 825 64-bit registers per thread.
 3. The difference also may stem from the PTX-to-SASS binary translation and the physical cache hierarchy. Ampere hardware (A100 and 3070) suffers from fatal register spilling to local memory. The RTX 4070 Ti (Ada Lovelace), featuring a redesigned Streaming Multiprocessor and a massively expanded L2 cache, may absorb the register pressure, resulting in superior execution speeds.
 
 <br>
 
-## Conclusions
+## Conclusion
 
 This project successfully demonstrated the implementation and architectural profiling of a GPU-accelerated ray tracer using Python and Numba. The progression from a naive sequential CPU implementation to a massively parallel CUDA architecture yielded expected exponential performance improvements. 
 
