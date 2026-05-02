@@ -17,7 +17,7 @@ from numba.core.errors import NumbaPerformanceWarning
 from PIL import Image
 
 from .bvh import build_bvh
-from .render_kernel import render_kernel
+from .render_kernel import render_kernel, collect_bvh_stats
 from .constants import (
     BLOCK_THREADS,
     SEED,
@@ -35,6 +35,9 @@ from .settings import (
     PRINT_STATS,
     IMG_FORMAT,
     SCENE_NAME,
+    COLLECT_BVH_STATS,
+    USE_SAH,
+    USE_BINNING,
 )
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
@@ -127,7 +130,7 @@ def load_or_build_scene(json_file, cache_file, t):
         assert len(triangles) > 0
 
         bvh_nodes, triangles, tri_normals, tri_uvs, mat_indices = build_bvh(
-            triangles, tri_normals, tri_uvs, mat_indices
+            triangles, tri_normals, tri_uvs, mat_indices, use_sah=USE_SAH, use_binning=USE_BINNING
         )
 
         np.savez(
@@ -169,7 +172,11 @@ def allocate_buffers(width, height):
     # 2: primary rays
     # 3: secondary rays (refractions + bounces)
     # 4: shadow rays
-    STATS_TUPLE = (height, width, 5)
+    # 5: max traversal depth (stack depth)
+    # 6: query time (only for CPU)
+    # 7: traverse tests
+    # 8: query depth
+    STATS_TUPLE = (height, width, 9)
     FB_HDR_SHAPE = (height, width, 3)  # float32 HDR framebuffer
     if DEVICE == "gpu":
         fb_hdr = cuda.device_array(FB_HDR_SHAPE, dtype=np.float32)
@@ -186,7 +193,7 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
     if not PRINT_STATS:
         return
     assert stats.ndim == 3
-    assert stats.shape[2] == 5
+    assert stats.shape[2] == 9
     assert render_time >= 0.0
     assert total_triangles > 0
 
@@ -195,6 +202,9 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
     prim_rays = stats[:, :, 2]
     sec_rays = stats[:, :, 3]
     shad_rays = stats[:, :, 4]
+    max_stack_depth = stats[:, :, 5]
+    traverse_tests = stats[:, :, 7]
+    query_depth = stats[:, :, 8]
 
     # calculate overall sums
     tot_prim = np.sum(prim_rays)
@@ -277,6 +287,11 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
         f"  Avg ops per ray:      {tests_per_ray:.1f}\n"
         f"  Avg nodes per ray:    {nodes_per_ray:.1f} (Ideal O(logN) ~ {optimal_log_nodes:.1f})\n"
         f"{SEP_DASH}\n"
+        f"TRAVERSAL STATS\n"
+        f"  Max stack depth:      {np.max(max_stack_depth):d}\n"
+        f"  Traverse tests:       {np.sum(traverse_tests):,}\n"
+        f"  Avg query depth:  {np.mean(query_depth):.1f}\n"
+        f"{SEP_DASH}\n"
     )
     if len(hit_incidences):
         print(
@@ -302,6 +317,12 @@ def save_image(fb, output_path):
 
 def main():
     """run the render pipeline."""
+    # handle --collect-bvh-stats flag from command line
+    collect_stats = COLLECT_BVH_STATS
+    for arg in sys.argv[1:]:
+        if arg == "--collect-bvh-stats":
+            collect_stats = True
+
     if DEVICE == "gpu":
         print(f"Runs on device: {str(cuda.get_current_device().name)[1:]}")
     else:
@@ -359,6 +380,9 @@ def main():
     rng_count = np.int32(width) * np.int32(height)
     rng_states = create_rng_states(int(rng_count), seed=int(np.uint64(SEED)))
 
+    # dummy metrics array for kernel compatibility (not used when not collecting stats)
+    metrics_out = cuda.device_array((int(width_host) * int(height_host), 4), dtype=np.float32)
+
     manager = KernelManager(render_kernel)
     use_bvh = True
     manager.precompile_run(locals())
@@ -369,6 +393,36 @@ def main():
         math.ceil(int(height) / threads[1]),
     )
     t = _phase_time("jit compile run", t)
+
+    # if collect-bvh-stats is enabled, run metrics collection instead of full render
+    if collect_stats:
+        output_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "output", "bvh_stats.txt"
+        )
+        collect_bvh_stats(
+            triangles,
+            tri_normals,
+            tri_uvs,
+            mat_indices,
+            materials,
+            mat_diffuse_tex_ids,
+            diffuse_textures,
+            tex_widths,
+            tex_heights,
+            bvh_nodes,
+            p00,
+            qw,
+            qh,
+            origin,
+            width_host,
+            height_host,
+            rng_states,
+            emissive_tris,
+            num_emissive,
+            output_path,
+        )
+        print(f"\n[timing] {'total (+-)':<20}: {time.perf_counter() - t_start:7.2f} s")
+        return
 
     if RENDER_NON_BVH_STATS:
         use_bvh = False
@@ -394,7 +448,6 @@ def main():
 
     # copy HDR buffer to host, tonemap to SDR, denoise, then gamma-correct to uint8
     fb_hdr_host = fb_hdr.copy_to_host() if DEVICE == "gpu" else fb_hdr
-    t = _phase_time("copy hdr to host", t_bvh_end)
     tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
     t = _phase_time("tonemap HDR -> SDR", t)
     if DENOISE and HAS_OIDN:
@@ -408,7 +461,7 @@ def main():
 
     fb = np.zeros((height_host, width_host, 3), dtype=np.uint8)
     postprocess_sdr_to_u8(fb_hdr_host, fb, width_host, height_host)
-    t = _phase_time("gamma correct to uint8", t)
+    t = _phase_time("gamma correct", t)
     # add postprocess time to render time for more accurate "total time to final image" stat
     render_time += t - t_bvh_end
 

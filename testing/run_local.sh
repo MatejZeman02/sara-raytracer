@@ -3,7 +3,7 @@
 # clear
 
 # get absolute path to the project root
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)"
 MAIN_SCRIPT="$PROJECT_ROOT/src/main.py"
 TINYOBJ_SO="$PROJECT_ROOT/utils/tinyobjloader_py.so"
 

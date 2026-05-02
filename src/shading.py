@@ -4,7 +4,7 @@ import math
 from numpy import float32
 
 from utils import device_jit
-from constants import DENOMINATOR_EPSILON, ZERO, ONE, TWO, PI
+from .constants import DENOMINATOR_EPSILON, ZERO, ONE, TWO, PI
 from utils.vec_utils import vec3, add, dot, mul, mul_vec, normalize, sub
 
 

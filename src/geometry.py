@@ -1,6 +1,6 @@
 from utils import device_jit
 from utils.vec_utils import vec3, normalize, cross, sub, neg, dot
-from constants import BARYCENTRIC_EPSILON, ZERO, ONE
+from .constants import BARYCENTRIC_EPSILON, ZERO, ONE
 
 
 @device_jit

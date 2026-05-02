@@ -2,9 +2,9 @@ from numpy import float32
 
 from utils import device_jit
 from utils.vec_utils import vec3
-from intersection import intersect_triangle, intersect_aabb
-from geometry import get_tri_verts
-from constants import (
+from .intersection import intersect_triangle, intersect_aabb
+from .geometry import get_tri_verts
+from .constants import (
     ZERO,
     RAY_EPSILON,
     STACK_SIZE,
@@ -16,6 +16,8 @@ from constants import (
     BVH_MAX_Z,
     BVH_LEFT_OR_START,
     BVH_RIGHT_OR_COUNT,
+    TRAVERSE_TESTS,
+    QUERY_DEPTH,
 )
 
 
@@ -30,6 +32,8 @@ def get_closest_hit(
     closest_v = ZERO
     tri_tests = 0
     node_tests = 0
+    traverse_tests = 0
+    max_stack_depth = 0
 
     if use_bvh:
         # stack is provided by the caller, reuse it
@@ -37,6 +41,9 @@ def get_closest_hit(
         stack[stack_ptr] = 0
 
         while stack_ptr >= 0:
+            if stack_ptr + 1 > max_stack_depth:
+                max_stack_depth = stack_ptr + 1
+
             assert stack_ptr < STACK_SIZE
             node_idx = stack[stack_ptr]
             stack_ptr -= 1
@@ -57,6 +64,7 @@ def get_closest_hit(
 
             # traverse children only if ray hits the box and is closer than current closest_t
             if hit and tmin < closest_t:
+                traverse_tests += 1
                 data1 = bvh_nodes[
                     node_idx, BVH_LEFT_OR_START
                 ]  # positive for leaf nodes
@@ -101,7 +109,16 @@ def get_closest_hit(
                 closest_u = u
                 closest_v = v
 
-    return closest_t, hit_idx, closest_u, closest_v, tri_tests, node_tests
+    return (
+        closest_t,
+        hit_idx,
+        closest_u,
+        closest_v,
+        tri_tests,
+        node_tests,
+        traverse_tests,
+        max_stack_depth,
+    )
 
 
 @device_jit
@@ -112,6 +129,8 @@ def is_in_shadow(
     assert dist_to_light > 0.0
     tri_tests = 0
     node_tests = 0
+    traverse_tests = 0
+    max_stack_depth = 0
 
     if not use_bvh:
         for i in range(triangles.shape[0]):
@@ -122,14 +141,17 @@ def is_in_shadow(
             )  # t: shadow_hit_distance
 
             if RAY_EPSILON < t < dist_to_light:
-                return True, tri_tests, node_tests
-        return False, tri_tests, node_tests
+                return True, tri_tests, node_tests, traverse_tests, max_stack_depth
+        return False, tri_tests, node_tests, traverse_tests, max_stack_depth
 
     # stack is provided by the caller, reuse it
     stack_ptr = 0
     stack[stack_ptr] = 0
 
     while stack_ptr >= 0:
+        if stack_ptr + 1 > max_stack_depth:
+            max_stack_depth = stack_ptr + 1
+
         assert stack_ptr < STACK_SIZE
         node_idx = stack[stack_ptr]
         stack_ptr -= 1
@@ -150,6 +172,7 @@ def is_in_shadow(
 
         # traverse only if box is hit and is closer than light source
         if hit and tmin < dist_to_light:
+            traverse_tests += 1
             data1 = bvh_nodes[node_idx, BVH_LEFT_OR_START]
             data2 = bvh_nodes[node_idx, BVH_RIGHT_OR_COUNT]
 
@@ -165,7 +188,13 @@ def is_in_shadow(
 
                     # immediate return on first valid blocking intersection
                     if RAY_EPSILON < t < dist_to_light:
-                        return True, tri_tests, node_tests
+                        return (
+                            True,
+                            tri_tests,
+                            node_tests,
+                            traverse_tests,
+                            max_stack_depth,
+                        )
             else:
                 left_child = int(data1)
                 right_child = int(-data2)
@@ -174,4 +203,4 @@ def is_in_shadow(
                 stack_ptr += 1
                 stack[stack_ptr] = left_child
 
-    return False, tri_tests, node_tests
+    return False, tri_tests, node_tests, traverse_tests, max_stack_depth

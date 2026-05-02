@@ -1,10 +1,11 @@
-from math import isfinite
+from math import isfinite, ceil
+import os
 import numpy as np
 from numpy import float32, empty
 import numba
 from numba import cuda, njit, prange
-from settings import DEVICE, MAX_BOUNCES, SAMPLES
-from constants import (
+from .settings import DEVICE, MAX_BOUNCES, SAMPLES
+from .constants import (
     STACK_SIZE,
     HALF,
     ZERO,
@@ -15,6 +16,8 @@ from constants import (
     PRIMARY_RAY,
     SECONDARY_RAY,
     SHADOW_RAY,
+    TRAVERSAL_DEPTH,
+    TRAVERSE_TESTS,
     MAT_TRANSMISSION_R,
     MAT_TRANSMISSION_G,
     MAT_TRANSMISSION_B,
@@ -23,23 +26,27 @@ from constants import (
     MAT_SPECULAR_G,
     MAT_SPECULAR_B,
     MISS_COLOR_F,
+    METRICS_NODE_TESTS,
+    METRICS_TRI_TESTS,
+    METRICS_SHADOW_TESTS,
+    METRICS_IS_HIT,
 )
 
 from utils import device_jit
 from utils.vec_utils import add, sub, mul, dot, normalize, vec3
 
-from rays import (
+from .rays import (
     compute_primary_ray,
     compute_inv_dir,
     compute_refraction,
     compute_reflection,
 )
-from geometry import compute_surface_normal
-from traversal import get_closest_hit
-from materials import get_emissive_color, compute_shadowed, compute_lit_color
-from framebuffer import write_hdr_to_fb
-from lights import sample_area_light
-from rng import rand_float32
+from .geometry import compute_surface_normal
+from .traversal import get_closest_hit
+from .materials import get_emissive_color, compute_shadowed, compute_lit_color
+from .framebuffer import write_hdr_to_fb
+from .lights import sample_area_light
+from .rng import rand_float32
 
 
 @device_jit
@@ -61,6 +68,7 @@ def render_pixel(
     origin,
     fb_hdr,
     out_stats,
+    metrics_out,
     x,
     y,
     stack,
@@ -81,6 +89,12 @@ def render_pixel(
 
     acc_r, acc_g, acc_b = f0, f0, f0
 
+    # metrics accumulators for this pixel
+    pixel_node_tests = 0
+    pixel_tri_tests = 0
+    pixel_shadow_tests = 0
+    pixel_hit = 0
+
     for _ in range(SAMPLES):
         # sub-pixel jitter for free anti-aliasing: random offset in [-0.5, 0.5)
         jx = rand_float32(rng_states, thread_idx) - HALF  # jitter_x
@@ -95,7 +109,7 @@ def render_pixel(
 
         for bounce in range(MAX_BOUNCES):
             is_primary = not bounce  # ray is primary, if 'bounce' is 0
-            closest_t, hit_idx, hit_u, hit_v, tri_tests, node_tests = get_closest_hit(
+            closest_t, hit_idx, hit_u, hit_v, tri_tests, node_tests, traverse_tests, max_stack_depth = get_closest_hit(
                 triangles,
                 bvh_nodes,
                 use_bvh,
@@ -106,6 +120,13 @@ def render_pixel(
                 is_primary,
             )
 
+            # accumulate gpu metrics
+            pixel_node_tests += node_tests
+            pixel_tri_tests += tri_tests
+
+            if hit_idx >= 0:
+                pixel_hit = 1
+
             # accumulate statistics (last sample wins for the reset-at-primary logic):
             if is_primary:
                 out_stats[y, x, PRIMARY_TRI] = tri_tests  # initial tri tests
@@ -113,10 +134,15 @@ def render_pixel(
                 out_stats[y, x, PRIMARY_RAY] = 1  # exactly 1 primary ray
                 out_stats[y, x, SECONDARY_RAY] = 0  # init secondary rays
                 out_stats[y, x, SHADOW_RAY] = 0  # init shadow rays
+                out_stats[y, x, TRAVERSE_TESTS] = traverse_tests
+                out_stats[y, x, TRAVERSAL_DEPTH] = max_stack_depth
             else:
                 out_stats[y, x, PRIMARY_TRI] += tri_tests
                 out_stats[y, x, PRIMARY_NODE] += node_tests
                 out_stats[y, x, SECONDARY_RAY] += 1  # one more secondary ray
+                out_stats[y, x, TRAVERSE_TESTS] += traverse_tests
+                if max_stack_depth > out_stats[y, x, TRAVERSAL_DEPTH]:
+                    out_stats[y, x, TRAVERSAL_DEPTH] = max_stack_depth
 
             if hit_idx == -1:
                 # print("*")
@@ -170,8 +196,9 @@ def render_pixel(
                 shadowed = True
             else:
                 out_stats[y, x, SHADOW_RAY] += 1
+                pixel_shadow_tests += 1
                 # s_tri/s_node: shadow traversal test counts
-                shadowed, s_tri, s_node = compute_shadowed(
+                shadowed, s_tri, s_node, traverse_tests, max_stack_depth = compute_shadowed(
                     triangles,
                     bvh_nodes,
                     use_bvh,
@@ -262,6 +289,14 @@ def render_pixel(
         acc_r * inv_samples, acc_g * inv_samples, acc_b * inv_samples, fb_hdr, x, y
     )
 
+    # write per-pixel bvh metrics
+    if metrics_out is not None:
+        idx = int(thread_idx)
+        metrics_out[idx, METRICS_NODE_TESTS] = float32(pixel_node_tests)
+        metrics_out[idx, METRICS_TRI_TESTS] = float32(pixel_tri_tests)
+        metrics_out[idx, METRICS_SHADOW_TESTS] = float32(pixel_shadow_tests)
+        metrics_out[idx, METRICS_IS_HIT] = float32(pixel_hit)
+
 
 if DEVICE == "cpu":
     # cpu entry point: parallel rows, serial columns
@@ -284,6 +319,7 @@ if DEVICE == "cpu":
         origin,
         fb_hdr,
         out_stats,
+        metrics_out,
         width,
         height,
         rng_states,
@@ -318,6 +354,7 @@ if DEVICE == "cpu":
                     origin,
                     fb_hdr,
                     out_stats,
+                    metrics_out,
                     x,
                     y,
                     stack,
@@ -349,6 +386,7 @@ elif DEVICE == "gpu":
         origin,
         fb_hdr,
         out_stats,
+        metrics_out,
         width,
         height,
         rng_states,
@@ -384,6 +422,7 @@ elif DEVICE == "gpu":
             origin,
             fb_hdr,
             out_stats,
+            metrics_out,
             x_i32,
             y_i32,
             stack,
@@ -392,3 +431,160 @@ elif DEVICE == "gpu":
             num_emissive,
             thread_idx,
         )
+
+
+def collect_bvh_stats(
+    triangles,
+    tri_normals,
+    tri_uvs,
+    mat_indices,
+    materials,
+    mat_diffuse_tex_ids,
+    diffuse_textures,
+    tex_widths,
+    tex_heights,
+    bvh_nodes,
+    p00,
+    qw,
+    qh,
+    origin,
+    width,
+    height,
+    rng_states,
+    emissive_tris,
+    num_emissive,
+    output_path,
+):
+    """collect gpu-side bvh traversal metrics and write to file."""
+    assert width > 0
+    assert height > 0
+    assert DEVICE == "gpu"
+
+    num_pixels = width * height
+
+    # allocate metrics device array: (width*height, 4) with float32
+    metrics_dev = cuda.device_array((num_pixels, 4), dtype=np.float32)
+
+    # allocate dummy fb_hdr and out_stats (not used for metrics collection)
+    fb_hdr_dummy = cuda.device_array((height, width, 3), dtype=np.float32)
+    out_stats_dummy = cuda.device_array((height, width, 9), dtype=np.int32)
+
+    threads = (16, 16)
+    grid = (
+        int(ceil(width / threads[0])),
+        int(ceil(height / threads[1])),
+    )
+
+    # launch kernel with metrics collection
+    render_kernel[grid, threads](
+        triangles,
+        tri_normals,
+        tri_uvs,
+        mat_indices,
+        materials,
+        mat_diffuse_tex_ids,
+        diffuse_textures,
+        tex_widths,
+        tex_heights,
+        bvh_nodes,
+        True,  # use_bvh
+        p00,
+        qw,
+        qh,
+        origin,
+        fb_hdr_dummy,
+        out_stats_dummy,
+        metrics_dev,
+        np.int32(width),
+        np.int32(height),
+        rng_states,
+        emissive_tris,
+        num_emissive,
+    )
+
+    cuda.synchronize()
+
+    # copy results back to host
+    metrics_host = metrics_dev.copy_to_host()
+
+    # compute statistics
+    node_tests = metrics_host[:, METRICS_NODE_TESTS]
+    tri_tests = metrics_host[:, METRICS_TRI_TESTS]
+    shadow_tests = metrics_host[:, METRICS_SHADOW_TESTS]
+    is_hit = metrics_host[:, METRICS_IS_HIT]
+
+    hit_mask = is_hit > 0
+    hit_count = int(np.sum(hit_mask))
+    miss_count = num_pixels - hit_count
+
+    # compute stats for hit pixels only
+    if hit_count > 0:
+        node_tests_hit = node_tests[hit_mask]
+        tri_tests_hit = tri_tests[hit_mask]
+        shadow_tests_hit = shadow_tests[hit_mask]
+    else:
+        node_tests_hit = node_tests
+        tri_tests_hit = tri_tests
+        shadow_tests_hit = shadow_tests
+
+    # build output lines
+    lines = []
+    lines.append("=" * 65)
+    lines.append("  BVH METRICS COLLECTION (GPU-side)")
+    lines.append("=" * 65)
+    lines.append(f"Resolution:             {width} x {height} ({num_pixels:,} pixels)")
+    lines.append(f"Hit pixels:             {hit_count:,} ({hit_count / num_pixels * 100:.1f}%)")
+    lines.append(f"Miss pixels (sky):      {miss_count:,} ({miss_count / num_pixels * 100:.1f}%)")
+    lines.append("-" * 65)
+    lines.append(f"  {'Metric':<30} {'Min':>12} {'Max':>12} {'Mean':>12}")
+    lines.append("-" * 65)
+
+    def format_stats(name, values):
+        lines.append(
+            f"  {name:<28} {np.min(values):>12.1f} {np.max(values):>12.1f} {np.mean(values):>12.2f}"
+        )
+
+    format_stats("node_tests", node_tests)
+    format_stats("tri_tests", tri_tests)
+    format_stats("shadow_tests", shadow_tests)
+    lines.append("-" * 65)
+    lines.append("")
+
+    if hit_count > 0:
+        lines.append("  HIT PIXELS ONLY:")
+        lines.append("-" * 65)
+        lines.append(f"  {'Metric':<30} {'Min':>12} {'Max':>12} {'Mean':>12}")
+        lines.append("-" * 65)
+        format_stats("node_tests", node_tests_hit)
+        format_stats("tri_tests", tri_tests_hit)
+        format_stats("shadow_tests", shadow_tests_hit)
+        lines.append("-" * 65)
+        lines.append("")
+
+    lines.append(f"Total node_tests:         {np.sum(node_tests):,.0f}")
+    lines.append(f"Total tri_tests:          {np.sum(tri_tests):,.0f}")
+    lines.append(f"Total shadow_tests:       {np.sum(shadow_tests):,.0f}")
+    lines.append("")
+    lines.append(f"Overall mean node_tests:  {np.mean(node_tests):.2f}")
+    lines.append(f"Overall mean tri_tests:   {np.mean(tri_tests):.2f}")
+    lines.append(f"Overall mean shadow_tests:{np.mean(shadow_tests):.2f}")
+    lines.append("")
+    if hit_count > 0:
+        lines.append(f"Hit-pixel mean node_tests:{np.mean(node_tests_hit):.2f}")
+        lines.append(f"Hit-pixel mean tri_tests: {np.mean(tri_tests_hit):.2f}")
+        lines.append(f"Hit-pixel mean shadow_tests:{np.mean(shadow_tests_hit):.2f}")
+    lines.append("=" * 65)
+
+    output_text = "\n".join(lines) + "\n"
+
+    # ensure output directory exists
+    output_dir = os.path.dirname(output_path)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+
+    with open(output_path, "w") as f:
+        f.write(output_text)
+
+    print(output_text)
+
+    return metrics_host

@@ -1,3 +1,11 @@
+# ignore all hidden files and folders (starting with .)
+.*
+# but keep .gitignore itself
+!.gitignore
+!.gitattributes
+!.gitmodules
+
+
 # ignore debuging
 .github/
 *patch*

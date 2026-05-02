@@ -1,4 +1,4 @@
-from settings import DEVICE  # type: ignore
+from src.settings import DEVICE  # type: ignore
 from numba import njit
 from numba import cuda
 

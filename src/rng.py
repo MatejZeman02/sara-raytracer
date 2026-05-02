@@ -8,7 +8,7 @@ from numba.cuda.random import (
     create_xoroshiro128p_states,
 )
 
-from settings import DEVICE
+from .settings import DEVICE
 from utils import device_jit
 
 if DEVICE == "cpu":

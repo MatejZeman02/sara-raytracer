@@ -2,7 +2,7 @@ import math
 from numpy import float32
 from utils import device_jit
 from utils.vec_utils import vec3, normalize, add, sub, mul, dot
-from constants import DENOMINATOR_EPSILON, TWO, ZERO, ONE, RAY_EPSILON
+from .constants import DENOMINATOR_EPSILON, TWO, ZERO, ONE, RAY_EPSILON
 
 
 @device_jit

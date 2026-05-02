@@ -1,8 +1,14 @@
 #!/bin/bash
 set -e
 
-# get Python from argument or default to current environment's python
-PYTHON_CMD="${1:-python}"
+# get absolute path to the project root
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)"
+
+# Use conda raytracer environment's python directly
+CONDA_PYTHON="/home/bubakulus/miniforge3/envs/raytracer/bin/python3.14"
+
+# get Python from argument or default to conda environment's python
+PYTHON_CMD="${1:-$CONDA_PYTHON}"
 
 # Verify Python is available
 if ! command -v "$PYTHON_CMD" &> /dev/null; then
@@ -23,12 +29,17 @@ fi
 PYBIND11_CMAKE_DIR=$("$PYTHON_CMD" -m pybind11 --cmakedir)
 
 # pass path to CMake via -Dpybind11_DIR
-cmake -S utils -B utils/build -Dpybind11_DIR="$PYBIND11_CMAKE_DIR" -DPYBIND11_FINDPYTHON=ON -DPython_EXECUTABLE="$(command -v "$PYTHON_CMD")"
+cmake -S "$PROJECT_ROOT/utils" -B "$PROJECT_ROOT/utils/build" -Dpybind11_DIR="$PYBIND11_CMAKE_DIR" -DPYBIND11_FINDPYTHON=ON -DPython_EXECUTABLE="$(command -v "$PYTHON_CMD")"
 
-cmake --build utils/build
+cmake --build "$PROJECT_ROOT/utils/build"
 
 # Warning: Pybind11 generates a file with a suffix (e.g. .cpython-314-x86_64-linux-gnu.so)
-# use wildcard * to make it work
-mv utils/build/tinyobjloader_py*.so utils/tinyobjloader_py.so
+# use find to locate the built .so file since glob doesn't expand in quoted strings
+BUILT_SO=$(find "$PROJECT_ROOT/utils/build" -name "tinyobjloader_py*.so" -type f | head -n 1)
+if [ -z "$BUILT_SO" ]; then
+    echo "Error: tinyobjloader_py*.so not found in build directory"
+    exit 1
+fi
+mv "$BUILT_SO" "$PROJECT_ROOT/utils/tinyobjloader_py.so"
 
-rm -rf utils/build
+rm -rf "$PROJECT_ROOT/utils/build"

@@ -50,6 +50,89 @@ The meassurements assume the data is already on gpu.
 > - The scenes are ussualy 5 units (blender meters) tall.
 
 
+## BVH Performance (GPU-side Metrics)
+
+Generated from `tests/bvh_metrics_unified.py` on `2026-05-02T23:19:17`.
+
+Resolution is `1024x1024`, samples are `16`, and max bounces are `16`.
+
+| Scene       | Config      | Construction (s) | node_tests (mean) | tri_tests (mean) | shadow_tests (mean) |
+| :---------- | :---------- | ---------------: | ----------------: | ---------------: | ------------------: |
+| bunny       | sah-binning |           4.2200 |            892.58 |            77.28 |               19.82 |
+| bunny       | no-sah      |           5.4400 |           2903.18 |           413.74 |               19.82 |
+| bunny       | no-binning  |         524.9300 |            775.17 |            79.97 |               19.83 |
+| bunny       | naive       |           5.5600 |           2903.12 |           413.73 |               19.82 |
+| box-spheres | sah-binning |           3.6600 |            454.15 |            52.85 |               13.34 |
+| box-spheres | no-sah      |           3.6000 |           1243.93 |           251.54 |               13.35 |
+| box-spheres | no-binning  |           4.1200 |            342.28 |            51.81 |               13.34 |
+| box-spheres | naive       |           3.6000 |           1243.74 |           251.50 |               13.34 |
+
+### Detailed Per-Metric Breakdown
+
+#### bunny - sah-binning
+
+| Metric       |  Min |     Max |   Mean |
+| :----------- | ---: | ------: | -----: |
+| node_tests   | 16.0 | 13342.0 | 892.58 |
+| tri_tests    |  0.0 |  1524.0 |  77.28 |
+| shadow_tests |  0.0 |   112.0 |  19.82 |
+
+#### bunny - no-sah
+
+| Metric       |  Min |     Max |    Mean |
+| :----------- | ---: | ------: | ------: |
+| node_tests   | 16.0 | 21962.0 | 2903.18 |
+| tri_tests    |  0.0 |  3436.0 |  413.74 |
+| shadow_tests |  0.0 |   112.0 |   19.82 |
+
+#### bunny - no-binning
+
+| Metric       |  Min |     Max |   Mean |
+| :----------- | ---: | ------: | -----: |
+| node_tests   | 16.0 | 11116.0 | 775.17 |
+| tri_tests    |  0.0 |  1469.0 |  79.97 |
+| shadow_tests |  0.0 |   112.0 |  19.83 |
+
+#### bunny - naive
+
+| Metric       |  Min |     Max |    Mean |
+| :----------- | ---: | ------: | ------: |
+| node_tests   | 16.0 | 21874.0 | 2903.12 |
+| tri_tests    |  0.0 |  3396.0 |  413.73 |
+| shadow_tests |  0.0 |   112.0 |   19.82 |
+
+#### box-spheres - sah-binning
+
+| Metric       |  Min |     Max |   Mean |
+| :----------- | ---: | ------: | -----: |
+| node_tests   | 16.0 | 13968.0 | 454.15 |
+| tri_tests    |  0.0 |  2644.0 |  52.85 |
+| shadow_tests |  0.0 |   186.0 |  13.34 |
+
+#### box-spheres - no-sah
+
+| Metric       |  Min |     Max |    Mean |
+| :----------- | ---: | ------: | ------: |
+| node_tests   | 16.0 | 25975.0 | 1243.93 |
+| tri_tests    |  0.0 |  4912.0 |  251.54 |
+| shadow_tests |  0.0 |   185.0 |   13.35 |
+
+#### box-spheres - no-binning
+
+| Metric       |  Min |     Max |   Mean |
+| :----------- | ---: | ------: | -----: |
+| node_tests   | 16.0 | 11217.0 | 342.28 |
+| tri_tests    |  0.0 |  2452.0 |  51.81 |
+| shadow_tests |  0.0 |   185.0 |  13.34 |
+
+#### box-spheres - naive
+
+| Metric       |  Min |     Max |    Mean |
+| :----------- | ---: | ------: | ------: |
+| node_tests   | 16.0 | 24766.0 | 1243.74 |
+| tri_tests    |  0.0 |  4932.0 |  251.50 |
+| shadow_tests |  0.0 |   196.0 |   13.34 |
+
 ## Performance Log:
 Saved bash rendering on cpu/gpu with/without BVH:
 
@@ -402,3 +485,35 @@ Shrnutí převodu konceptů z CUDA C++ (`nvcc`) do Numby:
 
 * `Tf` is often misused
   → if absent, assume white transmission `(1,1,1)`
+
+
+## Key Architecture Decisions
+
+### GPU vs CPU
+
+| What                                     | Where          | How                                                      |
+| ---------------------------------------- | -------------- | -------------------------------------------------------- |
+| Scene loading / parsing                  | CPU            | TinyObjLoader C++ via pybind11                           |
+| BVH construction                         | CPU            | SAH binning in `bvh.py`                                  |
+| Ray tracing (primary, secondary, shadow) | GPU            | Numba kernels in `render_kernel.py`                      |
+| BVH traversal                            | GPU            | `traversal.py` — per-thread stack via `cuda.local.array` |
+| Intersection test                        | GPU            | Möller–Trumbore in `intersection.py`                     |
+| Accumulation + reduction                 | GPU            | Adds into HDR framebuffer                                |
+| Denoising                                | CPU (optional) | Intel OIDN library in `denoiser.py`                      |
+| SRGB + save                              | CPU            | `framebuffer.py`                                         |
+
+### Numba CUDA Kernels
+
+All GPU code uses Numba decorators:
+- `@device_jit` — custom decorator that switches gpu/cpu based on DEVICE constant.
+- `@cuda.jit` — global kernel launched from CPU
+- `@cuda.jit(device=True)` — device-only helper callable from kernels
+- `@cuda.jit(fastmath=True)` — recommended for math-heavy kernels
+- `@cuda.jit(lineinfo=True)` — for Nsight Compute profiling (no perf loss)
+
+Numba performs **dead code elimination** on compile-time constants, so Python `if FLAG:` acts like `#ifdef`.
+
+### BVH
+
+The BVH is built on CPU using SAH binning, then uploaded to GPU as flat arrays. GPU traversal uses a per-thread local stack (`cuda.local.array`). A proper BVH reduces intersection ops from ~800k per ray to ~50 per ray on complex meshes.
+

@@ -2,10 +2,10 @@ from utils import device_jit
 from numpy import float32
 from math import sqrt, floor
 from utils.vec_utils import vec3, add, sub, mul, neg, dot
-from shading import cook_torrance_shading
-from traversal import is_in_shadow
-from rays import compute_inv_dir
-from constants import (
+from .shading import cook_torrance_shading
+from .traversal import is_in_shadow
+from .rays import compute_inv_dir
+from .constants import (
     ZERO,
     ONE,
     TWO,
@@ -117,9 +117,10 @@ def compute_shadowed(
     assert (
         safe_dist > ZERO
     ), "Light is too close to the surface, increase RAY_EPSILON or move the light further away"
-    return is_in_shadow(
+    res = is_in_shadow(
         triangles, bvh_nodes, use_bvh, shadow_ro, d_l, inv_dl, safe_dist, stack
     )
+    return res[0], res[1], res[2], res[3], res[4]
 
 
 @device_jit

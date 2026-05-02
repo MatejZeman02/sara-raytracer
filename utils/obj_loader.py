@@ -7,7 +7,7 @@ import numpy as np
 from numba import njit
 from PIL import Image
 
-from constants import NO_TEXTURE
+from src.constants import NO_TEXTURE
 
 from . import tinyobjloader_py as tiny_obj_loader
 

@@ -4,7 +4,7 @@ import math
 
 from utils import device_jit
 from utils.vec_utils import vec3, mul_vec, cross, dot, sub
-from constants import DET_EPSILON, INFINITY_VEC, ZERO, ONE
+from .constants import DET_EPSILON, INFINITY_VEC, ZERO, ONE
 
 
 @device_jit

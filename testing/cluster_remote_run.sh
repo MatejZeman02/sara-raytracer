@@ -9,6 +9,12 @@
 #SBATCH --time=00:15:00
 #SBATCH --mem=32G
 
+# note: this script is meant to run only at the school cluster via ssh.
+
+# get absolute path to the project root
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)"
+HW_SCRIPT="$PROJECT_ROOT/src/main.py"
+
 PROJECT_ROOT="/home/zemanm40/ni-gpu/zemanm40"
 HW_SCRIPT="$PROJECT_ROOT/src/main.py"
 

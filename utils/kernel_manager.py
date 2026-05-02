@@ -2,7 +2,7 @@ import inspect
 import numpy as np
 import time
 
-from settings import DEVICE  # type: ignore
+from src.settings import DEVICE  # type: ignore
 
 if DEVICE == "gpu":
     from numba import cuda

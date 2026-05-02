@@ -5,8 +5,8 @@ from numpy import float32, int32
 
 from utils import device_jit
 from utils.vec_utils import vec3, sub, cross, dot, normalize, mul
-from geometry import get_tri_verts
-from constants import (
+from .geometry import get_tri_verts
+from .constants import (
     TWO,
     ZERO,
     HALF,
@@ -16,7 +16,7 @@ from constants import (
     MAT_EMISSIVE_G,
     MAT_EMISSIVE_B,
 )
-from rng import rand_float32
+from .rng import rand_float32
 
 
 @device_jit

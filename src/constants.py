@@ -8,7 +8,7 @@ from numpy import float32, uint8, random
 DET_EPSILON = float32(1e-9)
 # used for t-distance checks and shadow ray origin offsets (scene-scale tolerance)
 RAY_EPSILON = float32(1e-6)
-DIST_TO_LIGHT_MULT = float32(1e-4) # t max safeguard for shadow rays
+DIST_TO_LIGHT_MULT = float32(1e-4)  # t max safeguard for shadow rays
 
 BARYCENTRIC_EPSILON = float32(1e-7)  # acounts with float32 precision error
 DENOMINATOR_EPSILON = float32(1e-10)  # division by zero and its check statements
@@ -71,3 +71,21 @@ PRIMARY_RAY = 2
 SECONDARY_RAY = 3
 # 4: shadow rays
 SHADOW_RAY = 4
+# 5: max traversal depth (stack depth)
+TRAVERSAL_DEPTH = 5
+# 6: query time (only for CPU)
+QUERY_TIME = 6
+# 7: traverse tests
+TRAVERSE_TESTS = 7
+# 8: query depth
+QUERY_DEPTH = 8
+
+# gpu metrics array layout (per-pixel, shape: width*height, 4):
+# 0: node_tests (float32) - number of bvh node visits
+METRICS_NODE_TESTS = 0
+# 1: tri_tests (float32) - number of triangle intersection tests
+METRICS_TRI_TESTS = 1
+# 2: shadow_tests (float32) - number of shadow ray tests
+METRICS_SHADOW_TESTS = 2
+# 3: is_hit (uint8, stored as float32 0/1) - whether ray hit geometry
+METRICS_IS_HIT = 3

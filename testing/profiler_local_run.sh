@@ -1,9 +1,12 @@
-# !/bin/bash
+#!/bin/bash
+
+# get absolute path to the project root
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)"
 
 echo "Note: This script is intended to be run on a local machine with NVIDIA GPU and Nsight Compute installed (conda/system)."
 
 # run the profiler on the main.py script in src
-ncu -f --profile-from-start off -o profile_report --set full conda run -n raytracer python ./src/main.py
+ncu -f --profile-from-start off -o profile_report --set full conda run -n raytracer python "$PROJECT_ROOT/src/main.py"
 
 # open nsight ui
 ncu-ui profile_report.ncu-rep
