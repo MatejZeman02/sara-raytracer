@@ -10,12 +10,13 @@ GPU_DIMENSION = 1024
 
 # SCENE_NAME = "box-advanced"
 
-SCENE_NAME = "box-scaled"
+SCENE_NAME = "bunny"
 SAMPLES = 16
 DENOISE = True
 MAX_BOUNCES = 16
 # more than 32 is overkill, but counting on attenuation
 IMG_FORMAT = "jpg"
-USE_BVH_CACHE = False
+USE_BVH_CACHE = True
 PRINT_STATS = False
 RENDER_NON_BVH_STATS = False
+TONEMAPPER = "none"  # "none", "khronos", "aces", "magenta"

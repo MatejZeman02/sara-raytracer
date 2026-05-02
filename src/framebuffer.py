@@ -2,8 +2,8 @@ import math
 from numpy import float32, uint8
 from numba import njit, prange
 from utils import device_jit
-from constants import ONE, HALF, UINT8_MAX_F, UINT8_MAX_I, ZERO
-from settings import DEVICE
+from .constants import ONE, HALF, UINT8_MAX_F, UINT8_MAX_I, ZERO
+from .settings import DEVICE, TONEMAPPER
 
 
 @device_jit
@@ -47,10 +47,15 @@ def khronos_pbr_neutral_tonemapper(r, g, b):
     # constants defined by the khronos spec
     start_compression = float32(0.8) - float32(0.04)
     desaturation = float32(0.15)
-    min_channel = min(r, min(g, b))
+
+    # if in SDR, do nothing
+    peak = max(r, max(g, b))
+    if peak < start_compression:
+        return r, g, b
 
     # apply a small offset to black levels
-    if min_channel < 0.08:
+    min_channel = min(r, min(g, b))
+    if min_channel < float32(0.08):
         offset = min_channel - (float32(6.25) * min_channel * min_channel)
     else:
         offset = float32(0.04)
@@ -58,11 +63,6 @@ def khronos_pbr_neutral_tonemapper(r, g, b):
     r -= offset
     g -= offset
     b -= offset
-
-    # if in SDR, do nothing
-    peak = max(r, max(g, b))
-    if peak < start_compression:
-        return r, g, b
 
     # compress highlights
     d = ONE - start_compression
@@ -105,11 +105,26 @@ def linear_to_srgb(c):
     return float32(1.055) * math.pow(c, ONE / float32(2.4)) - float32(0.055)
 
 
+@njit(fastmath=True)
+def magenta_debug_tonemap(r, g, b):
+    """debug mode: visualize hdr values exceeding display gamut as magenta."""
+    # check if any channel exceeds display gamut
+    peak = max(r, max(g, b))
+    if peak > ONE:
+        # use the maximum channel as the luminance proxy
+        lum = max(r, max(g, b))
+        # magenta = full red + full blue, no green
+        return lum, ZERO, lum
+    # values within display gamut pass through unchanged
+    return r, g, b
+
+
 @njit(parallel=True, fastmath=True)
 def tonemap_hdr_to_sdr(fb_hdr, width, height):
-    """apply Khronos PBR Neutral tonemap in-place to an HDR float32 buffer.
+    """apply tonemapping in-place to an hdr float32 buffer.
 
-    The buffer is rewritten in-place with float32 SDR values in [0, 1].
+    the buffer is rewritten in-place with float32 sdr values in [0, 1].
+    mode is determined by TONEMAPPER setting from settings.py.
     """
     assert width > 0
     assert height > 0
@@ -131,7 +146,13 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height):
             cg = fb_hdr[y, x, 1]
             cb = fb_hdr[y, x, 2]
 
-            cr_mapped, cg_mapped, cb_mapped = khronos_pbr_neutral_tonemapper(cr, cg, cb)
+            if TONEMAPPER == "none":
+                cr_mapped, cg_mapped, cb_mapped = cr, cg, cb
+            elif TONEMAPPER == "magenta":
+                cr_mapped, cg_mapped, cb_mapped = magenta_debug_tonemap(cr, cg, cb)
+            else:
+                # default: khronos pbr neutral tonemapper
+                cr_mapped, cg_mapped, cb_mapped = khronos_pbr_neutral_tonemapper(cr, cg, cb)
 
             # keep OIDN in LDR-safe range before denoising
             if cr_mapped < ZERO:
