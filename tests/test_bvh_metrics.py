@@ -106,6 +106,16 @@ def parse_metrics(output):
     if m:
         metrics["construction_time"] = float(m.group(1))
 
+    # Resolution (for query time estimation)
+    m = re.search(r"Resolution:\s+(\d+)\s+x\s+(\d+)\s+\(([\d,]+)\s+pixels\)", output)
+    if m:
+        metrics["num_pixels"] = int(m.group(3).replace(",", ""))
+
+    # Render time (for query time estimation)
+    m = re.search(r"Render time:\s+([\d.]+)\s+s", output)
+    if m:
+        metrics["render_time"] = float(m.group(1))
+
     # Hit/miss pixels
     m = re.search(r"Hit pixels:\s+(\d[\d,]*)\s+\(([\d.]+)%\)", output)
     if m:
@@ -127,10 +137,13 @@ def parse_metrics(output):
         if m:
             metrics[key] = int(m.group(1).replace(",", ""))
 
-    m = re.search(r"Leaf depth \(min/max\):\s+(\d+)\s*/\s+(\d+)", output)
+    m = re.search(
+        r"Leaf depth \(min/max/mean\):\s+(\d+)\s*/\s+(\d+)\s*/\s+([\d.]+)", output
+    )
     if m:
         metrics["leaf_depth_min"] = int(m.group(1))
         metrics["leaf_depth_max"] = int(m.group(2))
+        metrics["leaf_depth_mean"] = float(m.group(3))
 
     m = re.search(r"Prims/leaf \(min/max\):\s+(\d+)\s*/\s+(\d+)", output)
     if m:
@@ -200,6 +213,23 @@ def parse_metrics(output):
     total_shadow = re.search(r"Total shadow_tests:\s+([\d,]+)", output)
     if total_shadow:
         metrics["total_shadow_tests"] = int(total_shadow.group(1).replace(",", ""))
+
+    # Query time estimation (mean only)
+    # query_time = (render_time - construction_time) / total_queries
+    # where total_queries = num_pixels * SAMPLES
+    # Note: render_time must be > construction_time for this to be meaningful
+    if (
+        "render_time" in metrics
+        and "construction_time" in metrics
+        and "num_pixels" in metrics
+        and metrics["render_time"] > metrics["construction_time"]
+    ):
+        render_time = metrics["render_time"]
+        construction_time = metrics["construction_time"]
+        num_pixels = metrics["num_pixels"]
+        total_queries = num_pixels * SAMPLES
+        query_time = (render_time - construction_time) / total_queries
+        metrics["query_time_mean"] = query_time
 
     return metrics
 
@@ -358,10 +388,10 @@ def format_summary_table(results):
     lines.append("## Construction Metrics")
     lines.append("")
     lines.append(
-        "| Scene | Config | Const (s) | Nodes | Internal | Leaves | Mem (KB) | Leaf Depth (min/max) | Prims/leaf (min/max) |"
+        "| Scene | Config | Const (s) | Nodes | Internal | Leaves | Mem (KB) | Leaf depth (min/max/mean) | Prims/leaf (min/max/mean) |"
     )
     lines.append(
-        "|-------|--------|-----------|-------|----------|--------|----------|---------------------|----------------------|"
+        "|-------|--------|-----------|-------|----------|--------|----------|-------------------------|---------------------------|"
     )
 
     for scene, config_name, metrics in results:
@@ -377,12 +407,12 @@ def format_summary_table(results):
             f"{metrics.get('memory_kb', 0):.1f}" if "memory_kb" in metrics else "N/A"
         )
         ld = (
-            f"{metrics.get('leaf_depth_min', 0)}/{metrics.get('leaf_depth_max', 0)}"
+            f"{metrics.get('leaf_depth_min', 0)}/{metrics.get('leaf_depth_max', 0)}/{metrics.get('leaf_depth_mean', 0):.1f}"
             if "leaf_depth_min" in metrics
             else "N/A"
         )
         lp = (
-            f"{metrics.get('leaf_prims_min', 0)}/{metrics.get('leaf_prims_max', 0)}"
+            f"{metrics.get('leaf_prims_min', 0)}/{metrics.get('leaf_prims_max', 0)}/{metrics.get('leaf_prims_mean', 0):.1f}"
             if "leaf_prims_min" in metrics
             else "N/A"
         )
@@ -396,10 +426,10 @@ def format_summary_table(results):
     lines.append("## Traversal Metrics (mean per pixel)")
     lines.append("")
     lines.append(
-        "| Scene | Config | Hit % | node_tests | tri_tests | shadow_tests | traverse_tests | query_depth |"
+        "| Scene | Config | Hit % | node_tests | tri_tests | shadow_tests | traverse_tests | query_depth | query_time |"
     )
     lines.append(
-        "|-------|--------|-------|------------|-----------|--------------|----------------|-------------|"
+        "|-------|--------|-------|------------|-----------|--------------|----------------|-------------|------------|"
     )
 
     for scene, config_name, metrics in results:
@@ -409,8 +439,13 @@ def format_summary_table(results):
         mean_shadow = f"{metrics.get('mean_shadow_tests', 0):.2f}"
         mean_traverse = f"{metrics.get('mean_traverse_tests', 0):.2f}"
         mean_qd = f"{metrics.get('mean_query_depth', 0):.2f}"
+        qt = (
+            f"{metrics.get('query_time_mean', 0):.6f}"
+            if "query_time_mean" in metrics
+            else "N/A"
+        )
         lines.append(
-            f"| {scene} | {config_name} | {hit_pct}% | {mean_node} | {mean_tri} | {mean_shadow} | {mean_traverse} | {mean_qd} |"
+            f"| {scene} | {config_name} | {hit_pct}% | {mean_node} | {mean_tri} | {mean_shadow} | {mean_traverse} | {mean_qd} | {qt} |"
         )
 
     lines.append("")
@@ -492,13 +527,15 @@ def _constr_row(scene, config, m):
     leaves = _fmt(m, "leaf_nodes", fmt_str=",")
     ld_min = _fmt(m, "leaf_depth_min")
     ld_max = _fmt(m, "leaf_depth_max")
-    ld = f"{ld_min} / {ld_max}" if "leaf_depth_min" in m else "—"
+    ld_mean = _fmt(m, "leaf_depth_mean", fmt_str=".1f")
+    ld = f"{ld_min} / {ld_max} / {ld_mean}" if "leaf_depth_min" in m else "—"
     lp_min = _fmt(m, "leaf_prims_min")
     lp_max = _fmt(m, "leaf_prims_max")
-    lp = f"{lp_min} / {lp_max}" if "leaf_prims_min" in m else "—"
+    lp_mean = _fmt(m, "leaf_prims_mean", fmt_str=".1f")
+    lp = f"{lp_min} / {lp_max} / {lp_mean}" if "leaf_prims_min" in m else "—"
     return (
         f"| {scene:<13} | {config:<10} | {const:>9} | {nodes:>7} | {internal:>10} | "
-        f"{leaves:>8} | {ld:<20} | {lp:<20} |"
+        f"{leaves:>8} | {ld:<25} | {lp:<25} |"
     )
 
 
@@ -510,9 +547,10 @@ def _trav_row(scene, config, m):
     mean_shadow = _fmt(m, "mean_shadow_tests", fmt_str=".2f")
     mean_traverse = _fmt(m, "mean_traverse_tests", fmt_str=".2f")
     mean_qd = _fmt(m, "mean_query_depth", fmt_str=".2f")
+    qt = _fmt(m, "query_time_mean", fmt_str=".6f")
     return (
         f"| {scene:<13} | {config:<10} | {hit_pct:>5} | {mean_node:>10} | "
-        f"{mean_tri:>9} | {mean_shadow:>12} | {mean_traverse:>14} | {mean_qd:>9} |"
+        f"{mean_tri:>9} | {mean_shadow:>12} | {mean_traverse:>14} | {mean_qd:>9} | {qt:>10} |"
     )
 
 
@@ -723,11 +761,11 @@ def update_readme(results, readme_path):
             insert_lines.append("### Construction Metrics\n\n")
             insert_lines.append(
                 "| Scene       | Config       | Const (s) | Nodes | Internal | "
-                "Leaves | Leaf Depth (min/max) | Prims/leaf (min/max) |\n"
+                "Leaves | Leaf Depth (min/max/mean) | Prims/leaf (min/max/mean) |\n"
             )
             insert_lines.append(
                 "| :---------- | :----------- | --------: | ----: | "
-                "-------: | -----: | :------------------- | :------------------- |\n"
+                "-------: | -----: | :----------------------- | :---------------------- |\n"
             )
             for scene, config, metrics in results:
                 insert_lines.append(_constr_row(scene, config, metrics) + "\n")
@@ -737,11 +775,11 @@ def update_readme(results, readme_path):
             insert_lines.append("### Traversal Metrics\n\n")
             insert_lines.append(
                 "| Scene       | Config       | Hit % | node_tests | tri_tests | "
-                "shadow_tests | traverse_tests | query_depth |\n"
+                "shadow_tests | traverse_tests | query_depth | query_time |\n"
             )
             insert_lines.append(
                 "| :---------- | :----------- | ----: | ---------: | "
-                "--------: | -----------: | -------------: | ----------: |\n"
+                "--------: | -----------: | -------------: | ----------: | -----------: |\n"
             )
             for scene, config, metrics in results:
                 insert_lines.append(_trav_row(scene, config, metrics) + "\n")

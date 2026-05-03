@@ -487,7 +487,10 @@ def collect_bvh_stats(
         int(ceil(height / threads[1])),
     )
 
-    # launch kernel with metrics collection
+    # measure render time
+    import time
+
+    t_start = time.perf_counter()
     render_kernel[grid, threads](
         triangles,
         tri_normals,
@@ -515,6 +518,7 @@ def collect_bvh_stats(
     )
 
     cuda.synchronize()
+    render_time = time.perf_counter() - t_start
 
     # copy results back to host
     metrics_host = metrics_dev.copy_to_host()
@@ -596,6 +600,8 @@ def collect_bvh_stats(
     lines.append(f"Total shadow_tests:       {np.sum(shadow_tests):,.0f}")
     lines.append(f"Total traverse_tests:     {np.sum(traverse_tests):,.0f}")
     lines.append("")
+    lines.append(f"Render time:              {render_time:.2f} s")
+    lines.append("")
     lines.append(f"Overall mean node_tests:  {np.mean(node_tests):.2f}")
     lines.append(f"Overall mean tri_tests:   {np.mean(tri_tests):.2f}")
     lines.append(f"Overall mean shadow_tests:{np.mean(shadow_tests):.2f}")
@@ -657,6 +663,7 @@ def collect_bvh_stats(
 
         depth_min = min(leaf_depths) if leaf_depths else 0
         depth_max = max(leaf_depths) if leaf_depths else 0
+        depth_mean = float(np.mean(leaf_depths)) if leaf_depths else 0.0
         prims_min = min(leaf_prims) if leaf_prims else 0
         prims_max = max(leaf_prims) if leaf_prims else 0
         prims_mean = float(np.mean(leaf_prims)) if leaf_prims else 0.0
@@ -669,7 +676,9 @@ def collect_bvh_stats(
         lines.append(f"  Total nodes:              {total:,}")
         lines.append(f"  Internal nodes:           {internal:,}")
         lines.append(f"  Leaf nodes:               {leaves:,}")
-        lines.append(f"  Leaf depth (min/max):     {depth_min} / {depth_max}")
+        lines.append(
+            f"  Leaf depth (min/max/mean): {depth_min} / {depth_max} / {depth_mean:.2f}"
+        )
         lines.append(f"  Prims/leaf (min/max):     {prims_min} / {prims_max}")
         lines.append(f"  Prims/leaf (mean):        {prims_mean:.2f}")
         lines.append(
