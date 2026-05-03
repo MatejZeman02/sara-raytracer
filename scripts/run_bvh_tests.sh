@@ -44,21 +44,12 @@ run_test() {
     echo ""
 
     # Write settings to src/settings.py
-    cat > "$PROJECT_ROOT/src/settings.py" <<EOF
-DEVICE = "gpu"
-CPU_DIMENSION = 500
-GPU_DIMENSION = $dimension
-SCENE_NAME = "$scene"
-SAMPLES = $samples
-DENOISE = $denoise
-MAX_BOUNCES = $max_bounces
-IMG_FORMAT = "jpg"
-USE_BVH_CACHE = True
-PRINT_STATS = False
-RENDER_NON_BVH_STATS = $render_non_bvh
-TONEMAPPER = "$tonemapper"
-COLLECT_BVH_STATS = $collect_stats
-EOF
+    $CONDA_RUN -c conda-forge python -c "
+import sys
+sys.path.insert(0, '$PROJECT_ROOT/tests')
+from test_bvh_metrics import write_settings
+write_settings('$scene', $dimension, False, False)
+"
 
     # Run the test
     local start_time=$(date +%s%N)

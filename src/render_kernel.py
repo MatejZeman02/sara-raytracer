@@ -4,7 +4,12 @@ import numpy as np
 from numpy import float32, empty
 import numba
 from numba import cuda, njit, prange
-from .settings import DEVICE, MAX_BOUNCES, SAMPLES
+from .settings import settings
+
+# Extract values at import time so Numba sees concrete types
+_SAMPLES = settings.SAMPLES
+_MAX_BOUNCES = settings.MAX_BOUNCES
+
 from .constants import (
     STACK_SIZE,
     HALF,
@@ -86,7 +91,7 @@ def render_pixel(
 
     f0 = ZERO
     f1 = ONE
-    inv_samples = ONE / float32(SAMPLES)
+    inv_samples = ONE / float32(_SAMPLES)
 
     acc_r, acc_g, acc_b = f0, f0, f0
 
@@ -96,7 +101,7 @@ def render_pixel(
     pixel_shadow_tests = 0
     pixel_hit = 0
 
-    for _ in range(SAMPLES):
+    for _ in range(_SAMPLES):
         # sub-pixel jitter for free anti-aliasing: random offset in [-0.5, 0.5)
         jx = rand_float32(rng_states, thread_idx) - HALF  # jitter_x
         jy = rand_float32(rng_states, thread_idx) - HALF  # jitter_y
@@ -108,7 +113,7 @@ def render_pixel(
         final_r, final_g, final_b = f0, f0, f0
         thr_r, thr_g, thr_b = f1, f1, f1
 
-        for bounce in range(MAX_BOUNCES):
+        for bounce in range(_MAX_BOUNCES):
             is_primary = not bounce  # ray is primary, if 'bounce' is 0
             (
                 closest_t,
@@ -310,7 +315,7 @@ def render_pixel(
         metrics_out[idx, METRICS_IS_HIT] = float32(pixel_hit)
 
 
-if DEVICE == "cpu":
+if settings.DEVICE == "cpu":
     # cpu entry point: parallel rows, serial columns
     @njit(parallel=True, fastmath=True)
     def render_kernel(
@@ -376,7 +381,7 @@ if DEVICE == "cpu":
                     thread_idx,
                 )
 
-elif DEVICE == "gpu":
+elif settings.DEVICE == "gpu":
     # gpu entry point: one cuda thread per pixel
     # @cuda.jit(fastmath=False, lineinfo=True) # lineinfo enables profiler line mapping
     @cuda.jit(fastmath=True)
@@ -470,7 +475,7 @@ def collect_bvh_stats(
     """collect gpu-side bvh traversal metrics and write to file."""
     assert width > 0
     assert height > 0
-    assert DEVICE == "gpu"
+    assert settings.DEVICE == "gpu"
 
     num_pixels = width * height
 

@@ -8,10 +8,10 @@ from numba.cuda.random import (
     create_xoroshiro128p_states,
 )
 
-from .settings import DEVICE
+from .settings import settings
 from utils import device_jit
 
-if DEVICE == "cpu":
+if settings.DEVICE == "cpu":
 
     @device_jit
     def rand_float32(rng_states, idx):

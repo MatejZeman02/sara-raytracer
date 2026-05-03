@@ -54,23 +54,62 @@ RESOLUTION = 1024
 
 
 def write_settings(scene, resolution, use_sah, use_binning):
-    """Write settings.py for a given configuration."""
+    """Write settings.py defaults for a given configuration."""
+    defaults = {
+        "DEVICE": '"gpu"',
+        "CPU_DIMENSION": "500",
+        "GPU_DIMENSION": str(resolution),
+        "SCENE_NAME": f'"{scene}"',
+        "SAMPLES": str(SAMPLES),
+        "MAX_BOUNCES": str(MAX_BOUNCES),
+        "DENOISE": "False",
+        "TONEMAPPER": '"none"',
+        "IMG_FORMAT": '"jpg"',
+        "USE_BVH_CACHE": "False",
+        "PRINT_STATS": "False",
+        "RENDER_NON_BVH_STATS": "False",
+        "COLLECT_BVH_STATS": "True",
+        "USE_SAH": str(use_sah),
+        "USE_BINNING": str(use_binning),
+    }
     with open(SETTINGS_PATH, "w") as f:
-        f.write(f'DEVICE = "gpu"\n')
-        f.write(f"CPU_DIMENSION = 500\n")
-        f.write(f"GPU_DIMENSION = {resolution}\n")
-        f.write(f'SCENE_NAME = "{scene}"\n')
-        f.write(f"SAMPLES = {SAMPLES}\n")
-        f.write(f"DENOISE = False\n")
-        f.write(f"MAX_BOUNCES = {MAX_BOUNCES}\n")
-        f.write(f'IMG_FORMAT = "jpg"\n')
-        f.write(f"USE_BVH_CACHE = False\n")
-        f.write(f"PRINT_STATS = False\n")
-        f.write(f"RENDER_NON_BVH_STATS = False\n")
-        f.write(f'TONEMAPPER = "none"\n')
-        f.write(f"COLLECT_BVH_STATS = True\n")
-        f.write(f"USE_SAH = {use_sah}\n")
-        f.write(f"USE_BINNING = {use_binning}\n")
+        f.write('"""Settings for the raytracer."""\n')
+        f.write("\n")
+        f.write("_DEFAULTS = {\n")
+        for k, v in defaults.items():
+            f.write(f'    "{k}": {v},\n')
+        f.write("}\n")
+        f.write("\n")
+        f.write("class Settings:\n")
+        f.write("    _instance = None\n")
+        f.write("    _parsed = False\n")
+        f.write("    def __init__(self):\n")
+        f.write("        global _DEFAULTS\n")
+        f.write("        self._values = dict(_DEFAULTS)\n")
+        f.write("    def _parse(self):\n")
+        f.write("        self._parsed = True\n")
+        f.write("    def __getattr__(self, name):\n")
+        f.write('        if name.startswith("_"):\n')
+        f.write("            return object.__getattribute__(self, name)\n")
+        f.write("        self._parse()\n")
+        f.write("        try:\n")
+        f.write("            return self._values[name]\n")
+        f.write("        except KeyError:\n")
+        f.write("            raise AttributeError(\n")
+        f.write(
+            "                f\"'{type(self).__name__}' object has no attribute '{name}'\"\n"
+        )
+        f.write("            )\n")
+        f.write("    def __setattr__(self, name, value):\n")
+        f.write('        if name.startswith("_"):\n')
+        f.write("            super().__setattr__(name, value)\n")
+        f.write("        else:\n")
+        f.write("            self._parse()\n")
+        f.write("            self._values[name] = value\n")
+        f.write("\n")
+        f.write("_settings = Settings()\n")
+        f.write("_settings._parse()\n")
+        f.write("settings = _settings\n")
 
 
 def run_raytracer():

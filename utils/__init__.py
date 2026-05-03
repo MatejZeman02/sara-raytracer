@@ -1,10 +1,10 @@
-from src.settings import DEVICE  # type: ignore
+from src.settings import settings  # type: ignore
 from numba import njit
 from numba import cuda
 
 
 def device_jit(*args, **kwargs):
-    if DEVICE == "cpu":
+    if settings.DEVICE == "cpu":
 
         # translate boolean inline/device to string for cpu njit
         if "inline" in kwargs:

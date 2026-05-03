@@ -2,9 +2,9 @@ import inspect
 import numpy as np
 import time
 
-from src.settings import DEVICE  # type: ignore
+from src.settings import settings  # type: ignore
 
-if DEVICE == "gpu":
+if settings.DEVICE == "gpu":
     from numba import cuda
 
 
@@ -28,7 +28,7 @@ class KernelManager:
             assert search_name in local_vars, f"missing variable: {search_name}"
             val = local_vars[search_name]
 
-            if DEVICE == "gpu":
+            if settings.DEVICE == "gpu":
                 # gpu path: transfer numpy arrays to device memory
                 if hasattr(val, "copy_to_host"):
                     args.append(val)
@@ -53,7 +53,7 @@ class KernelManager:
 
     def precompile_run(self, local_vars):
         """runs kernel to trigger jit compilation."""
-        if DEVICE == "cpu":
+        if settings.DEVICE == "cpu":
             # direct call triggers njit compilation
             # change resolution to 1x1
             self.dimensions = (local_vars["width"], local_vars["height"])
@@ -63,7 +63,7 @@ class KernelManager:
         args = self._resolve_args(local_vars)
         assert len(args) == len(self.arg_names), "argument count mismatch during warmup"
 
-        if DEVICE == "cpu":
+        if settings.DEVICE == "cpu":
             self.kernel(*args)
         else:
             # execute single thread with real memory references
@@ -76,7 +76,7 @@ class KernelManager:
 
         note: if args previously transferred to gpu, this timing will only include kernel execution.
         """
-        if DEVICE == "cpu":
+        if settings.DEVICE == "cpu":
             # TODO: needed?
             # ensure dimensions are set for cpu path
             assert (
@@ -86,7 +86,7 @@ class KernelManager:
         args = self._resolve_args(data_context)
 
         t0 = time.perf_counter()
-        if DEVICE == "cpu":
+        if settings.DEVICE == "cpu":
             # cpu path: direct call, grid and block are ignored
             self.kernel(*args)
         else:
