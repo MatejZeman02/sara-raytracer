@@ -3,7 +3,10 @@ from numpy import float32, uint8
 from numba import njit, prange
 from utils import device_jit
 from .constants import ONE, HALF, UINT8_MAX_F, UINT8_MAX_I, ZERO
-from .settings import DEVICE, TONEMAPPER
+from .settings import settings
+
+# Extract value at import time so Numba sees a concrete string
+_TONEMAPPER = settings.TONEMAPPER
 
 
 @device_jit
@@ -35,7 +38,7 @@ def aces_narkowicz_tonemap(x):
     return mapped
 
 
-if DEVICE == "gpu":
+if settings.DEVICE == "gpu":
     khronos_tonemap = njit(fastmath=True)
 else:
     khronos_tonemap = device_jit
@@ -146,13 +149,15 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height):
             cg = fb_hdr[y, x, 1]
             cb = fb_hdr[y, x, 2]
 
-            if TONEMAPPER == "none":
+            if _TONEMAPPER == "none":
                 cr_mapped, cg_mapped, cb_mapped = cr, cg, cb
-            elif TONEMAPPER == "magenta":
+            elif _TONEMAPPER == "magenta":
                 cr_mapped, cg_mapped, cb_mapped = magenta_debug_tonemap(cr, cg, cb)
             else:
                 # default: khronos pbr neutral tonemapper
-                cr_mapped, cg_mapped, cb_mapped = khronos_pbr_neutral_tonemapper(cr, cg, cb)
+                cr_mapped, cg_mapped, cb_mapped = khronos_pbr_neutral_tonemapper(
+                    cr, cg, cb
+                )
 
             # keep OIDN in LDR-safe range before denoising
             if cr_mapped < ZERO:

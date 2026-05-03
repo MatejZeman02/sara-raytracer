@@ -33,26 +33,13 @@ from .constants import (
     TRAVERSE_TESTS,
     QUERY_DEPTH,
 )
-from .settings import (
-    CPU_DIMENSION,
-    GPU_DIMENSION,
-    DEVICE,
-    RENDER_NON_BVH_STATS,
-    USE_BVH_CACHE,
-    DENOISE,
-    PRINT_STATS,
-    IMG_FORMAT,
-    SCENE_NAME,
-    COLLECT_BVH_STATS,
-    USE_SAH,
-    USE_BINNING,
-)
+from .settings import settings
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
 from .framebuffer import postprocess_sdr_to_u8, tonemap_hdr_to_sdr
 from .denoiser import HAS_OIDN, denoise
 
-if DEVICE == "gpu":
+if settings.DEVICE == "gpu":
     from numba import cuda
 
 warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
@@ -106,7 +93,7 @@ def load_or_build_scene(json_file, cache_file, t):
     )
 
     can_use_cache = False
-    if USE_BVH_CACHE and os.path.exists(cache_file):
+    if settings.USE_BVH_CACHE and os.path.exists(cache_file):
         cache = np.load(cache_file)
         can_use_cache = all(k in cache.files for k in required_cache_keys)
     if can_use_cache:
@@ -142,8 +129,8 @@ def load_or_build_scene(json_file, cache_file, t):
             tri_normals,
             tri_uvs,
             mat_indices,
-            use_sah=USE_SAH,
-            use_binning=USE_BINNING,
+            use_sah=settings.USE_SAH,
+            use_binning=settings.USE_BINNING,
         )
 
         np.savez(
@@ -191,7 +178,7 @@ def allocate_buffers(width, height):
     # 8: query depth
     STATS_TUPLE = (height, width, 9)
     FB_HDR_SHAPE = (height, width, 3)  # float32 HDR framebuffer
-    if DEVICE == "gpu":
+    if settings.DEVICE == "gpu":
         fb_hdr = cuda.device_array(FB_HDR_SHAPE, dtype=np.float32)
         out_stats = cuda.device_array(STATS_TUPLE, dtype=np.int32)
     else:
@@ -203,7 +190,7 @@ def allocate_buffers(width, height):
 
 def print_statistics(stats, render_time, total_triangles, is_ds=True):
     """calculate and print advanced rendering statistics with a focus on readability and ratios."""
-    if not PRINT_STATS:
+    if not settings.PRINT_STATS:
         return
     assert stats.ndim == 3
     assert stats.shape[2] == 9
@@ -279,7 +266,7 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
     SEP_DASH = "-" * SEP_LEN
     print(
         f"\n{SEP_EQUAL}\n"
-        f"  STATISTICS ({'DS' if is_ds else 'No DS'} on {DEVICE.upper()})\n"
+        f"  STATISTICS ({'DS' if is_ds else 'No DS'} on {settings.DEVICE.upper()})\n"
         f"{SEP_EQUAL}\n"
         f"Resolution:             {width} x {height} ({tot_prim:,} pixels)\n"
         f"Render time:            {render_time:.3f} s\n"
@@ -324,29 +311,33 @@ def save_image(fb, output_path):
     # ppm turned off for now...
     # save_ppm(output_path + ".ppm", host_fb)
     img = Image.fromarray(host_fb)
-    img.save(f"{output_path}.{IMG_FORMAT}")
-    print(f"Click to see the result onto: {output_path}.{IMG_FORMAT}")
+    img.save(f"{output_path}.{settings.IMG_FORMAT}")
+    print(f"Click to see the result onto: {output_path}.{settings.IMG_FORMAT}")
 
 
 def main():
     """run the render pipeline."""
     # handle --collect-bvh-stats flag from command line
-    collect_stats = COLLECT_BVH_STATS
+    collect_stats = settings.COLLECT_BVH_STATS
     for arg in sys.argv[1:]:
         if arg == "--collect-bvh-stats":
             collect_stats = True
 
-    if DEVICE == "gpu":
+    if settings.DEVICE == "gpu":
         print(f"Runs on device: {str(cuda.get_current_device().name)[1:]}")
     else:
-        print(f"Runs on device: {DEVICE.upper()}")
+        print(f"Runs on device: {settings.DEVICE.upper()}")
     t = _phase_time("init python", t_start)
 
-    width_host = int(CPU_DIMENSION) if DEVICE == "cpu" else int(GPU_DIMENSION)
+    width_host = (
+        int(settings.CPU_DIMENSION)
+        if settings.DEVICE == "cpu"
+        else int(settings.GPU_DIMENSION)
+    )
     height_host = width_host
     assert width_host > 0
 
-    json_file = os.path.join(project_root, "scenes", SCENE_NAME, "setup.json")
+    json_file = os.path.join(project_root, "scenes", settings.SCENE_NAME, "setup.json")
     cache_file_name = json_file.split("/")[-2] + ".bvh.npz"
     cache_file = os.path.join(project_root, "utils", "__pycache__", cache_file_name)
 
@@ -370,7 +361,7 @@ def main():
         light_data, cam_data, width_host, height_host
     )
     fb_hdr, out_stats = allocate_buffers(width_host, height_host)
-    if DEVICE == "gpu":
+    if settings.DEVICE == "gpu":
         t = _phase_time("init cuda + alloc", t)
 
     # pass explicit int32 dimensions to kernels to avoid mixed scalar typing.
@@ -439,12 +430,14 @@ def main():
         print(f"\n[timing] {'total (+-)':<20}: {time.perf_counter() - t_start:7.2f} s")
         return
 
-    if RENDER_NON_BVH_STATS:
+    if settings.RENDER_NON_BVH_STATS:
         use_bvh = False
         t_brute = manager.run(grid, threads, locals())
         t = _phase_time("render (no ds)", t_brute)
 
-        stats_brute = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
+        stats_brute = (
+            out_stats.copy_to_host() if settings.DEVICE == "gpu" else out_stats
+        )
         print_statistics(stats_brute, t - t_brute, len(triangles), is_ds=False)
         print()
 
@@ -452,23 +445,23 @@ def main():
         fb_hdr, out_stats = allocate_buffers(width_host, height_host)
 
     use_bvh = True
-    if DEVICE == "gpu":
+    if settings.DEVICE == "gpu":
         cuda.profile_start()
     t_bvh_start = manager.run(grid, threads, locals())
-    if DEVICE == "gpu":
+    if settings.DEVICE == "gpu":
         cuda.profile_stop()
 
     t_bvh_end = _phase_time("render (with ds)", t_bvh_start, fps=True)
     render_time = t_bvh_end - t_bvh_start
 
     # copy HDR buffer to host, tonemap to SDR, denoise, then gamma-correct to uint8
-    fb_hdr_host = fb_hdr.copy_to_host() if DEVICE == "gpu" else fb_hdr
+    fb_hdr_host = fb_hdr.copy_to_host() if settings.DEVICE == "gpu" else fb_hdr
     tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
     t = _phase_time("tonemap HDR -> SDR", t)
-    if DENOISE and HAS_OIDN:
+    if settings.DENOISE and HAS_OIDN:
         denoise(fb_hdr_host, width_host, height_host)
         t = _phase_time("oidn denoise", t)
-    elif DENOISE:
+    elif settings.DENOISE:
         warnings.warn(
             "DENOISE is enabled but OIDN is not installed; skipping denoising.",
             RuntimeWarning,
@@ -480,7 +473,7 @@ def main():
     # add postprocess time to render time for more accurate "total time to final image" stat
     render_time += t - t_bvh_end
 
-    stats = out_stats.copy_to_host() if DEVICE == "gpu" else out_stats
+    stats = out_stats.copy_to_host() if settings.DEVICE == "gpu" else out_stats
     print_statistics(stats, render_time, len(triangles))
 
     output_path = os.path.join(
