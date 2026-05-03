@@ -1,15 +1,17 @@
+"""Settings for the raytracer"""
+
 DEVICE = "gpu"
 CPU_DIMENSION = 500
 GPU_DIMENSION = 1024
-SCENE_NAME = "box-spheres"
+SCENE_NAME = "bunny"
 SAMPLES = 16
 DENOISE = False
 MAX_BOUNCES = 16
 IMG_FORMAT = "jpg"
-USE_BVH_CACHE = False
+USE_BVH_CACHE = True
 PRINT_STATS = False
 RENDER_NON_BVH_STATS = False
 TONEMAPPER = "none"
-COLLECT_BVH_STATS = True
+COLLECT_BVH_STATS = False
 USE_SAH = True
-USE_BINNING = False
+USE_BINNING = True
