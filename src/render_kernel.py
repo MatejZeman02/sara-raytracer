@@ -18,6 +18,7 @@ from .constants import (
     SHADOW_RAY,
     TRAVERSAL_DEPTH,
     TRAVERSE_TESTS,
+    QUERY_DEPTH,
     MAT_TRANSMISSION_R,
     MAT_TRANSMISSION_G,
     MAT_TRANSMISSION_B,
@@ -109,7 +110,16 @@ def render_pixel(
 
         for bounce in range(MAX_BOUNCES):
             is_primary = not bounce  # ray is primary, if 'bounce' is 0
-            closest_t, hit_idx, hit_u, hit_v, tri_tests, node_tests, traverse_tests, max_stack_depth = get_closest_hit(
+            (
+                closest_t,
+                hit_idx,
+                hit_u,
+                hit_v,
+                tri_tests,
+                node_tests,
+                traverse_tests,
+                max_stack_depth,
+            ) = get_closest_hit(
                 triangles,
                 bvh_nodes,
                 use_bvh,
@@ -135,14 +145,14 @@ def render_pixel(
                 out_stats[y, x, SECONDARY_RAY] = 0  # init secondary rays
                 out_stats[y, x, SHADOW_RAY] = 0  # init shadow rays
                 out_stats[y, x, TRAVERSE_TESTS] = traverse_tests
-                out_stats[y, x, TRAVERSAL_DEPTH] = max_stack_depth
+                out_stats[y, x, QUERY_DEPTH] = max_stack_depth
             else:
                 out_stats[y, x, PRIMARY_TRI] += tri_tests
                 out_stats[y, x, PRIMARY_NODE] += node_tests
                 out_stats[y, x, SECONDARY_RAY] += 1  # one more secondary ray
                 out_stats[y, x, TRAVERSE_TESTS] += traverse_tests
-                if max_stack_depth > out_stats[y, x, TRAVERSAL_DEPTH]:
-                    out_stats[y, x, TRAVERSAL_DEPTH] = max_stack_depth
+                if max_stack_depth > out_stats[y, x, QUERY_DEPTH]:
+                    out_stats[y, x, QUERY_DEPTH] = max_stack_depth
 
             if hit_idx == -1:
                 # print("*")
@@ -198,25 +208,27 @@ def render_pixel(
                 out_stats[y, x, SHADOW_RAY] += 1
                 pixel_shadow_tests += 1
                 # s_tri/s_node: shadow traversal test counts
-                shadowed, s_tri, s_node, traverse_tests, max_stack_depth = compute_shadowed(
-                    triangles,
-                    bvh_nodes,
-                    use_bvh,
-                    a,
-                    b,
-                    c,
-                    na,
-                    nb,
-                    nc,
-                    w,
-                    hit_u,
-                    hit_v,
-                    p,
-                    geom_n,
-                    is_backface,
-                    d_l,
-                    dist_to_light,
-                    stack,
+                shadowed, s_tri, s_node, traverse_tests, max_stack_depth = (
+                    compute_shadowed(
+                        triangles,
+                        bvh_nodes,
+                        use_bvh,
+                        a,
+                        b,
+                        c,
+                        na,
+                        nb,
+                        nc,
+                        w,
+                        hit_u,
+                        hit_v,
+                        p,
+                        geom_n,
+                        is_backface,
+                        d_l,
+                        dist_to_light,
+                        stack,
+                    )
                 )
                 # accumulate traversal tests from shadow ray
                 out_stats[y, x, PRIMARY_TRI] += s_tri
@@ -506,12 +518,17 @@ def collect_bvh_stats(
 
     # copy results back to host
     metrics_host = metrics_dev.copy_to_host()
+    out_stats_host = out_stats_dummy.copy_to_host()
 
     # compute statistics
     node_tests = metrics_host[:, METRICS_NODE_TESTS]
     tri_tests = metrics_host[:, METRICS_TRI_TESTS]
     shadow_tests = metrics_host[:, METRICS_SHADOW_TESTS]
     is_hit = metrics_host[:, METRICS_IS_HIT]
+
+    # extract traverse_tests and query_depth from out_stats (shape: height, width, 9)
+    traverse_tests = out_stats_host[:, :, TRAVERSE_TESTS].ravel()
+    query_depth = out_stats_host[:, :, QUERY_DEPTH].ravel()
 
     hit_mask = is_hit > 0
     hit_count = int(np.sum(hit_mask))
@@ -533,8 +550,12 @@ def collect_bvh_stats(
     lines.append("  BVH METRICS COLLECTION (GPU-side)")
     lines.append("=" * 65)
     lines.append(f"Resolution:             {width} x {height} ({num_pixels:,} pixels)")
-    lines.append(f"Hit pixels:             {hit_count:,} ({hit_count / num_pixels * 100:.1f}%)")
-    lines.append(f"Miss pixels (sky):      {miss_count:,} ({miss_count / num_pixels * 100:.1f}%)")
+    lines.append(
+        f"Hit pixels:             {hit_count:,} ({hit_count / num_pixels * 100:.1f}%)"
+    )
+    lines.append(
+        f"Miss pixels (sky):      {miss_count:,} ({miss_count / num_pixels * 100:.1f}%)"
+    )
     lines.append("-" * 65)
     lines.append(f"  {'Metric':<30} {'Min':>12} {'Max':>12} {'Mean':>12}")
     lines.append("-" * 65)
@@ -547,6 +568,8 @@ def collect_bvh_stats(
     format_stats("node_tests", node_tests)
     format_stats("tri_tests", tri_tests)
     format_stats("shadow_tests", shadow_tests)
+    format_stats("traverse_tests", traverse_tests)
+    format_stats("query_depth", query_depth)
     lines.append("-" * 65)
     lines.append("")
 
@@ -558,21 +581,35 @@ def collect_bvh_stats(
         format_stats("node_tests", node_tests_hit)
         format_stats("tri_tests", tri_tests_hit)
         format_stats("shadow_tests", shadow_tests_hit)
+        format_stats(
+            "traverse_tests",
+            traverse_tests[hit_mask] if hit_count > 0 else traverse_tests,
+        )
+        format_stats(
+            "query_depth", query_depth[hit_mask] if hit_count > 0 else query_depth
+        )
         lines.append("-" * 65)
         lines.append("")
 
     lines.append(f"Total node_tests:         {np.sum(node_tests):,.0f}")
     lines.append(f"Total tri_tests:          {np.sum(tri_tests):,.0f}")
     lines.append(f"Total shadow_tests:       {np.sum(shadow_tests):,.0f}")
+    lines.append(f"Total traverse_tests:     {np.sum(traverse_tests):,.0f}")
     lines.append("")
     lines.append(f"Overall mean node_tests:  {np.mean(node_tests):.2f}")
     lines.append(f"Overall mean tri_tests:   {np.mean(tri_tests):.2f}")
     lines.append(f"Overall mean shadow_tests:{np.mean(shadow_tests):.2f}")
+    lines.append(f"Overall mean traverse_tests:{np.mean(traverse_tests):.2f}")
+    lines.append(f"Overall mean query_depth: {np.mean(query_depth):.2f}")
     lines.append("")
     if hit_count > 0:
         lines.append(f"Hit-pixel mean node_tests:{np.mean(node_tests_hit):.2f}")
         lines.append(f"Hit-pixel mean tri_tests: {np.mean(tri_tests_hit):.2f}")
         lines.append(f"Hit-pixel mean shadow_tests:{np.mean(shadow_tests_hit):.2f}")
+        ht = traverse_tests[hit_mask]
+        hqd = query_depth[hit_mask]
+        lines.append(f"Hit-pixel mean traverse_tests:{np.mean(ht):.2f}")
+        lines.append(f"Hit-pixel mean query_depth: {np.mean(hqd):.2f}")
     lines.append("=" * 65)
 
     output_text = "\n".join(lines) + "\n"
@@ -586,5 +623,61 @@ def collect_bvh_stats(
         f.write(output_text)
 
     print(output_text)
+
+    # --- construction metrics ---
+    try:
+        nodes = bvh_nodes.copy_to_host().reshape(-1, 8)
+    except Exception:
+        nodes = bvh_nodes
+
+    if hasattr(nodes, "shape") and len(nodes.shape) == 2 and nodes.shape[1] >= 8:
+        total = 0
+        internal = 0
+        leaves = 0
+        leaf_depths = []
+        leaf_prims = []
+        stack = [0]
+        while stack:
+            idx = stack.pop()
+            if idx < 0 or idx >= len(nodes):
+                continue
+            total += 1
+            right_count = int(nodes[idx, 7])
+            if right_count >= 0:
+                # leaf
+                leaves += 1
+                leaf_prims.append(right_count)
+                leaf_depths.append(len(stack))
+            else:
+                internal += 1
+                left = int(nodes[idx, 6])
+                right = -int(nodes[idx, 7])
+                stack.append(left)
+                stack.append(right)
+
+        depth_min = min(leaf_depths) if leaf_depths else 0
+        depth_max = max(leaf_depths) if leaf_depths else 0
+        prims_min = min(leaf_prims) if leaf_prims else 0
+        prims_max = max(leaf_prims) if leaf_prims else 0
+        prims_mean = float(np.mean(leaf_prims)) if leaf_prims else 0.0
+        mem_bytes = len(nodes) * nodes.dtype.itemsize * nodes.shape[1]
+        mem_kb = mem_bytes / 1024.0
+
+        lines.append("")
+        lines.append("CONSTRUCTION METRICS:")
+        lines.append("-" * 65)
+        lines.append(f"  Total nodes:              {total:,}")
+        lines.append(f"  Internal nodes:           {internal:,}")
+        lines.append(f"  Leaf nodes:               {leaves:,}")
+        lines.append(f"  Leaf depth (min/max):     {depth_min} / {depth_max}")
+        lines.append(f"  Prims/leaf (min/max):     {prims_min} / {prims_max}")
+        lines.append(f"  Prims/leaf (mean):        {prims_mean:.2f}")
+        lines.append(
+            f"  Memory:                   {mem_bytes:,} bytes ({mem_kb:.1f} KB)"
+        )
+        output_text = "\n".join(lines) + "\n"
+        with open(output_path, "w") as f:
+            f.write(output_text)
+        print(output_text)
 
     return metrics_host

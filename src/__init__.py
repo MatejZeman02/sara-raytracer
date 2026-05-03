@@ -24,6 +24,14 @@ from .constants import (
     MAT_EMISSIVE_R,
     MAT_EMISSIVE_G,
     MAT_EMISSIVE_B,
+    PRIMARY_TRI,
+    PRIMARY_NODE,
+    PRIMARY_RAY,
+    SECONDARY_RAY,
+    SHADOW_RAY,
+    TRAVERSAL_DEPTH,
+    TRAVERSE_TESTS,
+    QUERY_DEPTH,
 )
 from .settings import (
     CPU_DIMENSION,
@@ -130,7 +138,12 @@ def load_or_build_scene(json_file, cache_file, t):
         assert len(triangles) > 0
 
         bvh_nodes, triangles, tri_normals, tri_uvs, mat_indices = build_bvh(
-            triangles, tri_normals, tri_uvs, mat_indices, use_sah=USE_SAH, use_binning=USE_BINNING
+            triangles,
+            tri_normals,
+            tri_uvs,
+            mat_indices,
+            use_sah=USE_SAH,
+            use_binning=USE_BINNING,
         )
 
         np.savez(
@@ -197,14 +210,14 @@ def print_statistics(stats, render_time, total_triangles, is_ds=True):
     assert render_time >= 0.0
     assert total_triangles > 0
 
-    tri_tests = stats[:, :, 0]
-    node_tests = stats[:, :, 1]
-    prim_rays = stats[:, :, 2]
-    sec_rays = stats[:, :, 3]
-    shad_rays = stats[:, :, 4]
-    max_stack_depth = stats[:, :, 5]
-    traverse_tests = stats[:, :, 7]
-    query_depth = stats[:, :, 8]
+    tri_tests = stats[:, :, PRIMARY_TRI]
+    node_tests = stats[:, :, PRIMARY_NODE]
+    prim_rays = stats[:, :, PRIMARY_RAY]
+    sec_rays = stats[:, :, SECONDARY_RAY]
+    shad_rays = stats[:, :, SHADOW_RAY]
+    max_stack_depth = stats[:, :, TRAVERSAL_DEPTH]
+    traverse_tests = stats[:, :, TRAVERSE_TESTS]
+    query_depth = stats[:, :, QUERY_DEPTH]
 
     # calculate overall sums
     tot_prim = np.sum(prim_rays)
@@ -381,7 +394,9 @@ def main():
     rng_states = create_rng_states(int(rng_count), seed=int(np.uint64(SEED)))
 
     # dummy metrics array for kernel compatibility (not used when not collecting stats)
-    metrics_out = cuda.device_array((int(width_host) * int(height_host), 4), dtype=np.float32)
+    metrics_out = cuda.device_array(
+        (int(width_host) * int(height_host), 4), dtype=np.float32
+    )
 
     manager = KernelManager(render_kernel)
     use_bvh = True

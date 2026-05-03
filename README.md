@@ -52,87 +52,43 @@ The meassurements assume the data is already on gpu.
 
 ## BVH Performance (GPU-side Metrics)
 
-Generated from `tests/bvh_metrics_unified.py` on `2026-05-02T23:19:17`.
+> Device: NVIDIA GeForce RTX 3090 / 16 CPU cores
+
 
 Resolution is `1024x1024`, samples are `16`, and max bounces are `16`.
 
-| Scene       | Config      | Construction (s) | node_tests (mean) | tri_tests (mean) | shadow_tests (mean) |
-| :---------- | :---------- | ---------------: | ----------------: | ---------------: | ------------------: |
-| bunny       | sah-binning |           4.2200 |            892.58 |            77.28 |               19.82 |
-| bunny       | no-sah      |           5.4400 |           2903.18 |           413.74 |               19.82 |
-| bunny       | no-binning  |         524.9300 |            775.17 |            79.97 |               19.83 |
-| bunny       | naive       |           5.5600 |           2903.12 |           413.73 |               19.82 |
-| box-spheres | sah-binning |           3.6600 |            454.15 |            52.85 |               13.34 |
-| box-spheres | no-sah      |           3.6000 |           1243.93 |           251.54 |               13.35 |
-| box-spheres | no-binning  |           4.1200 |            342.28 |            51.81 |               13.34 |
-| box-spheres | naive       |           3.6000 |           1243.74 |           251.50 |               13.34 |
+| Scene       | Config       | Construction (s) | node_tests (mean) | tri_tests (mean) | shadow_tests (mean) |
+| :---------- | :----------- | ---------------: | ----------------: | ---------------: | ------------------: |
+| bunny       | sah-binning  |           4.0400 |            892.46 |            77.27 |               19.82 |
+| bunny       | median-split |           5.1400 |           2903.18 |           413.74 |               19.82 |
+| bunny       | no-binning   |         506.0800 |            775.13 |            79.97 |               19.82 |
+| box-spheres | sah-binning  |           3.3900 |            454.04 |            52.84 |               13.34 |
+| box-spheres | median-split |           3.4700 |           1243.96 |           251.54 |               13.35 |
+| box-spheres | no-binning   |           3.8300 |            342.28 |            51.82 |               13.35 |
+
+### Construction Metrics
+
+| Scene       | Config       | Const (s) |  Nodes | Internal | Leaves | Leaf Depth (min/max) | Prims/leaf (min/max) |
+| :---------- | :----------- | --------: | -----: | -------: | -----: | :------------------- | :------------------- |
+| bunny       | sah-binning  |    4.0400 | 76,907 |   38,453 | 38,454 | 0 / 17               | 1 / 5                |
+| bunny       | median-split |    5.1400 | 73,431 |   36,715 | 36,716 | 0 / 16               | 1 / 5                |
+| bunny       | no-binning   |  506.0800 | 75,055 |   37,527 | 37,528 | 0 / 16               | 1 / 5                |
+| box-spheres | sah-binning  |    3.3900 |  2,183 |    1,091 |  1,092 | 0 / 11               | 1 / 4                |
+| box-spheres | median-split |    3.4700 |  2,357 |    1,178 |  1,179 | 0 / 11               | 1 / 20               |
+| box-spheres | no-binning   |    3.8300 |  2,131 |    1,065 |  1,066 | 0 / 11               | 1 / 4                |
+
+### Traversal Metrics
+
+| Scene       | Config       | Hit % | node_tests | tri_tests | shadow_tests | traverse_tests | query_depth |
+| :---------- | :----------- | ----: | ---------: | --------: | -----------: | -------------: | ----------: |
+| bunny       | sah-binning  |  89.5 |     892.46 |     77.27 |        19.82 |              — |           — |
+| bunny       | median-split |  89.5 |    2903.18 |    413.74 |        19.82 |              — |           — |
+| bunny       | no-binning   |  89.5 |     775.13 |     79.97 |        19.82 |              — |           — |
+| box-spheres | sah-binning  |  89.5 |     454.04 |     52.84 |        13.34 |              — |           — |
+| box-spheres | median-split |  89.5 |    1243.96 |    251.54 |        13.35 |              — |           — |
+| box-spheres | no-binning   |  89.5 |     342.28 |     51.82 |        13.35 |              — |           — |
 
 ### Detailed Per-Metric Breakdown
-
-#### bunny - sah-binning
-
-| Metric       |  Min |     Max |   Mean |
-| :----------- | ---: | ------: | -----: |
-| node_tests   | 16.0 | 13342.0 | 892.58 |
-| tri_tests    |  0.0 |  1524.0 |  77.28 |
-| shadow_tests |  0.0 |   112.0 |  19.82 |
-
-#### bunny - no-sah
-
-| Metric       |  Min |     Max |    Mean |
-| :----------- | ---: | ------: | ------: |
-| node_tests   | 16.0 | 21962.0 | 2903.18 |
-| tri_tests    |  0.0 |  3436.0 |  413.74 |
-| shadow_tests |  0.0 |   112.0 |   19.82 |
-
-#### bunny - no-binning
-
-| Metric       |  Min |     Max |   Mean |
-| :----------- | ---: | ------: | -----: |
-| node_tests   | 16.0 | 11116.0 | 775.17 |
-| tri_tests    |  0.0 |  1469.0 |  79.97 |
-| shadow_tests |  0.0 |   112.0 |  19.83 |
-
-#### bunny - naive
-
-| Metric       |  Min |     Max |    Mean |
-| :----------- | ---: | ------: | ------: |
-| node_tests   | 16.0 | 21874.0 | 2903.12 |
-| tri_tests    |  0.0 |  3396.0 |  413.73 |
-| shadow_tests |  0.0 |   112.0 |   19.82 |
-
-#### box-spheres - sah-binning
-
-| Metric       |  Min |     Max |   Mean |
-| :----------- | ---: | ------: | -----: |
-| node_tests   | 16.0 | 13968.0 | 454.15 |
-| tri_tests    |  0.0 |  2644.0 |  52.85 |
-| shadow_tests |  0.0 |   186.0 |  13.34 |
-
-#### box-spheres - no-sah
-
-| Metric       |  Min |     Max |    Mean |
-| :----------- | ---: | ------: | ------: |
-| node_tests   | 16.0 | 25975.0 | 1243.93 |
-| tri_tests    |  0.0 |  4912.0 |  251.54 |
-| shadow_tests |  0.0 |   185.0 |   13.35 |
-
-#### box-spheres - no-binning
-
-| Metric       |  Min |     Max |   Mean |
-| :----------- | ---: | ------: | -----: |
-| node_tests   | 16.0 | 11217.0 | 342.28 |
-| tri_tests    |  0.0 |  2452.0 |  51.81 |
-| shadow_tests |  0.0 |   185.0 |  13.34 |
-
-#### box-spheres - naive
-
-| Metric       |  Min |     Max |    Mean |
-| :----------- | ---: | ------: | ------: |
-| node_tests   | 16.0 | 24766.0 | 1243.74 |
-| tri_tests    |  0.0 |  4932.0 |  251.50 |
-| shadow_tests |  0.0 |   196.0 |   13.34 |
-
 ## Performance Log:
 Saved bash rendering on cpu/gpu with/without BVH:
 

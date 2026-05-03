@@ -1,0 +1,54 @@
+=================================================================
+  BVH METRICS COLLECTION (GPU-side)
+=================================================================
+Resolution:             1024 x 1024 (1,048,576 pixels)
+Hit pixels:             938,938 (89.5%)
+Miss pixels (sky):      109,638 (10.5%)
+-----------------------------------------------------------------
+  Metric                                  Min          Max         Mean
+-----------------------------------------------------------------
+  node_tests                           16.0      12508.0       342.33
+  tri_tests                             0.0       2181.0        51.82
+  shadow_tests                          0.0        174.0        13.35
+  traverse_tests                        0.0        635.0        11.73
+  query_depth                           1.0         12.0         3.62
+-----------------------------------------------------------------
+
+  HIT PIXELS ONLY:
+-----------------------------------------------------------------
+  Metric                                  Min          Max         Mean
+-----------------------------------------------------------------
+  node_tests                           24.0      12508.0       380.17
+  tri_tests                             2.0       2181.0        57.80
+  shadow_tests                          0.0        174.0        14.90
+  traverse_tests                        0.0        635.0        13.09
+  query_depth                           1.0         12.0         3.92
+-----------------------------------------------------------------
+
+Total node_tests:         358,959,680
+Total tri_tests:          54,336,408
+Total shadow_tests:       13,994,651
+Total traverse_tests:     12,301,526
+
+Overall mean node_tests:  342.33
+Overall mean tri_tests:   51.82
+Overall mean shadow_tests:13.35
+Overall mean traverse_tests:11.73
+Overall mean query_depth: 3.62
+
+Hit-pixel mean node_tests:380.17
+Hit-pixel mean tri_tests: 57.80
+Hit-pixel mean shadow_tests:14.90
+Hit-pixel mean traverse_tests:13.09
+Hit-pixel mean query_depth: 3.92
+=================================================================
+
+CONSTRUCTION METRICS:
+-----------------------------------------------------------------
+  Total nodes:              2,131
+  Internal nodes:           1,065
+  Leaf nodes:               1,066
+  Leaf depth (min/max):     0 / 11
+  Prims/leaf (min/max):     1 / 4
+  Prims/leaf (mean):        2.05
+  Memory:                   68,192 bytes (66.6 KB)
