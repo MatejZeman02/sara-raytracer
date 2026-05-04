@@ -1,0 +1,2 @@
+# copy intel oidn 2.x libs here (same tarball version): libOpenImageDenoise.so.*.*
+# libOpenImageDenoise_core.so.* libOpenImageDenoise_device_cuda.so.*

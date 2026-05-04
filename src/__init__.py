@@ -12,6 +12,10 @@ import os
 import sys
 import warnings
 
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 import numpy as np
 from numba.core.errors import NumbaPerformanceWarning
 from PIL import Image
@@ -36,17 +40,26 @@ from .constants import (
 from .settings import settings
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
-from .framebuffer import postprocess_sdr_to_u8, tonemap_hdr_to_sdr
-from .denoiser import HAS_OIDN, denoise
+from .framebuffer import (
+    postprocess_sdr_to_u8,
+    postprocess_full_gpu_kernel,
+    tonemap_hdr_to_sdr,
+    tonemap_kernel,
+    create_gamma_lut,
+)
+from .denoiser import (
+    HAS_NATIVE_CUDA_OIDN,
+    HAS_PIP_OIDN,
+    denoise_cuda_hdr,
+    denoise_pip_ldr,
+)
 
 if settings.DEVICE == "gpu":
     from numba import cuda
 
 warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
 
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+project_root = _project_root
 
 from utils.kernel_manager import KernelManager
 from utils.obj_loader import load_light_cam_data, load_scene
@@ -430,9 +443,45 @@ def main():
         print(f"\n[timing] {'total (+-)':<20}: {time.perf_counter() - t_start:7.2f} s")
         return
 
+    # postprocess setup done before render timing so frame fps does not include one-time setup
+    gamma_lut = create_gamma_lut()
+    warm_sdr = np.zeros((1, 1, 3), dtype=np.float32)
+    warm_u8 = np.zeros((1, 1, 3), dtype=np.uint8)
+    postprocess_sdr_to_u8(warm_sdr, warm_u8, gamma_lut, 1, 1)
+
+    if settings.DEVICE == "gpu":
+        lut_path = os.path.join(project_root, "color-management", "acescg_to_srgb.npy")
+        if not os.path.exists(lut_path):
+            raise FileNotFoundError(
+                f"ACES LUT not found: {lut_path}. Run color-management/generate-lut.py"
+            )
+
+        lut_host = np.load(lut_path).astype(np.float32)
+        lut_device = cuda.to_device(lut_host)
+        gamma_lut_device = cuda.to_device(gamma_lut)
+
+        # warmup stage: pre-jit tiny postprocess kernels before timed render/post
+        warm_fb = cuda.device_array((16, 16, 3), dtype=np.float32)
+        warm_ldr = cuda.device_array((16, 16, 3), dtype=np.float32)
+        warm_u8_device = cuda.device_array((16, 16, 3), dtype=np.uint8)
+        tonemap_kernel[(1, 1), (16, 16)](
+            warm_fb, warm_ldr, lut_device, np.int32(16), np.int32(16)
+        )
+        postprocess_full_gpu_kernel[(1, 1), (16, 16)](
+            warm_fb,
+            warm_u8_device,
+            lut_device,
+            gamma_lut_device,
+            np.int32(16),
+            np.int32(16),
+        )
+        cuda.synchronize()
+
     if settings.RENDER_NON_BVH_STATS:
         use_bvh = False
         t_brute = manager.run(grid, threads, locals())
+        if settings.DEVICE == "gpu":
+            cuda.synchronize()
         t = _phase_time("render (no ds)", t_brute)
 
         stats_brute = (
@@ -450,28 +499,118 @@ def main():
     t_bvh_start = manager.run(grid, threads, locals())
     if settings.DEVICE == "gpu":
         cuda.profile_stop()
+        cuda.synchronize()
 
-    t_bvh_end = _phase_time("render (with ds)", t_bvh_start, fps=True)
+    t_bvh_end = _phase_time("render (with ds)", t_bvh_start)
     render_time = t_bvh_end - t_bvh_start
+    if settings.DEVICE == "gpu":
+        selected_tonemapper = str(settings.TONEMAPPER).lower()
+        # custom-aces (and legacy "lut"/"acescg") uses the baked ACEScg->sRGB LUT path.
+        use_gpu_lut_path = selected_tonemapper in ("custom-aces", "lut", "acescg")
+        use_native_full_gpu = HAS_NATIVE_CUDA_OIDN or not settings.DENOISE
+        if settings.DENOISE and not HAS_NATIVE_CUDA_OIDN and HAS_PIP_OIDN:
+            if use_gpu_lut_path:
+                print("[oidn] pip cpu (aces lut tonemap first, then denoise)")
+            else:
+                print("[oidn] pip cpu (cpu tonemap path, then denoise)")
+        elif settings.DENOISE and not HAS_NATIVE_CUDA_OIDN and not HAS_PIP_OIDN:
+            warnings.warn(
+                "DENOISE is enabled but OIDN is not installed; skipping denoising.",
+                RuntimeWarning,
+            )
+            # no denoiser available, keep postprocessing on gpu
+            use_native_full_gpu = True
 
-    # copy HDR buffer to host, tonemap to SDR, denoise, then gamma-correct to uint8
-    fb_hdr_host = fb_hdr.copy_to_host() if settings.DEVICE == "gpu" else fb_hdr
-    tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
-    t = _phase_time("tonemap HDR -> SDR", t)
-    if settings.DENOISE and HAS_OIDN:
-        denoise(fb_hdr_host, width_host, height_host)
-        t = _phase_time("oidn denoise", t)
-    elif settings.DENOISE:
-        warnings.warn(
-            "DENOISE is enabled but OIDN is not installed; skipping denoising.",
-            RuntimeWarning,
-        )
+        if not use_gpu_lut_path:
+            print(
+                f"[tonemapper] {selected_tonemapper} uses cpu tonemap path "
+                "(gpu lut path is custom-aces-only for ACEScg->sRGB)"
+            )
 
-    fb = np.zeros((height_host, width_host, 3), dtype=np.uint8)
-    postprocess_sdr_to_u8(fb_hdr_host, fb, width_host, height_host)
-    t = _phase_time("gamma correct", t)
-    # add postprocess time to render time for more accurate "total time to final image" stat
-    render_time += t - t_bvh_end
+            if settings.DENOISE and HAS_NATIVE_CUDA_OIDN:
+                print("[oidn] native cuda (hdr denoise on gpu, then cpu tonemap)")
+                t_dn = time.perf_counter()
+                denoise_cuda_hdr(fb_hdr, width_host, height_host)
+                t = _phase_time("oidn denoise (cuda hdr)", t_dn)
+
+            fb_hdr_host = fb_hdr.copy_to_host()
+            t_tonemap = time.perf_counter()
+            tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
+            t = _phase_time("tonemap HDR -> SDR", t_tonemap)
+
+            if settings.DENOISE and HAS_PIP_OIDN and not HAS_NATIVE_CUDA_OIDN:
+                t_dn = time.perf_counter()
+                denoise_pip_ldr(fb_hdr_host, width_host, height_host)
+                t = _phase_time("oidn denoise (pip cpu ldr)", t_dn)
+
+            fb = np.zeros((height_host, width_host, 3), dtype=np.uint8)
+            postprocess_sdr_to_u8(fb_hdr_host, fb, gamma_lut, width_host, height_host)
+            t = _phase_time("gamma correct", t)
+            render_time += t - t_bvh_end
+        elif use_native_full_gpu:
+            if settings.DENOISE and HAS_NATIVE_CUDA_OIDN:
+                print(
+                    "[oidn] native cuda from utils/lib "
+                    "(hdr denoise on gpu, then gpu tonemap+gamma)"
+                )
+                t_dn = time.perf_counter()
+                denoise_cuda_hdr(fb_hdr, width_host, height_host)
+                t = _phase_time("oidn denoise (cuda hdr)", t_dn)
+
+            fb_u8_device = cuda.device_array((height_host, width_host, 3), dtype=np.uint8)
+            t_post = time.perf_counter()
+            postprocess_full_gpu_kernel[grid, threads](
+                fb_hdr, fb_u8_device, lut_device, gamma_lut_device, width, height
+            )
+            cuda.synchronize()
+            fb = fb_u8_device.copy_to_host()
+            t = _phase_time("postprocess full gpu", t_post)
+            render_time = t - t_bvh_start
+            _phase_time("frame (render+post)", t_bvh_start, fps=True)
+        else:
+            fb_ldr_device = cuda.device_array((height_host, width_host, 3), dtype=np.float32)
+            t_tonemap = time.perf_counter()
+            tonemap_kernel[grid, threads](fb_hdr, fb_ldr_device, lut_device, width, height)
+            cuda.synchronize()
+            fb_ldr_host = fb_ldr_device.copy_to_host()
+            t = _phase_time("tonemap ", t_tonemap)
+            if settings.DENOISE and HAS_PIP_OIDN:
+                t_dn = time.perf_counter()
+                denoise_pip_ldr(fb_ldr_host, width_host, height_host)
+                t = _phase_time("oidn denoise (pip cpu ldr)", t_dn)
+
+            fb = np.zeros((height_host, width_host, 3), dtype=np.uint8)
+            postprocess_sdr_to_u8(fb_ldr_host, fb, gamma_lut, width_host, height_host)
+            t = _phase_time("gamma correct", t)
+            render_time += t - t_bvh_end
+    else:
+        fb_hdr_host = fb_hdr
+        tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
+        t = _phase_time("tonemap HDR -> SDR", t)
+        if settings.DENOISE:
+            if HAS_PIP_OIDN:
+                print("[oidn] pip cpu (tonemap first, then denoise)")
+                t_dn = time.perf_counter()
+                denoise_pip_ldr(fb_hdr_host, width_host, height_host)
+                t = _phase_time("oidn denoise (pip cpu ldr)", t_dn)
+            elif HAS_NATIVE_CUDA_OIDN:
+                warnings.warn(
+                    "DENOISE is on and native cuda oidn is in utils/lib, but the "
+                    "cpu renderer only supports pip oidn. Install the pip package "
+                    "or set DEVICE gpu.",
+                    RuntimeWarning,
+                )
+            else:
+                warnings.warn(
+                    "DENOISE is enabled but OIDN is not installed; skipping denoising.",
+                    RuntimeWarning,
+                )
+
+        fb = np.zeros((height_host, width_host, 3), dtype=np.uint8)
+        postprocess_sdr_to_u8(fb_hdr_host, fb, gamma_lut, width_host, height_host)
+        t = _phase_time("gamma correct", t)
+        # add postprocess time to render time for more accurate "total time to final image" stat
+        render_time += t - t_bvh_end
 
     stats = out_stats.copy_to_host() if settings.DEVICE == "gpu" else out_stats
     print_statistics(stats, render_time, len(triangles))
