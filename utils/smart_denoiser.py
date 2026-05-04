@@ -45,15 +45,11 @@ def _has_core_lib() -> bool:
 
 
 def _bind_native_symbols(lib: ctypes.CDLL) -> None:
-    # cuda shared pointers require a cuda device from oidnNewCUDADevice (not oidnNewDevice)
-    lib.oidnNewCUDADevice.restype = ctypes.c_void_p
-    lib.oidnNewCUDADevice.argtypes = [
-        ctypes.POINTER(ctypes.c_int),
-        ctypes.c_void_p,
-        ctypes.c_int,
-    ]
+    lib.oidnNewDevice.restype = ctypes.c_void_p
+    lib.oidnNewDevice.argtypes = [ctypes.c_int]
     lib.oidnCommitDevice.argtypes = [ctypes.c_void_p]
     lib.oidnNewFilter.restype = ctypes.c_void_p
+    lib.oidnNewFilter.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
     lib.oidnSetSharedFilterImage.argtypes = [
         ctypes.c_void_p,
         ctypes.c_char_p,
@@ -74,6 +70,8 @@ def _bind_native_symbols(lib: ctypes.CDLL) -> None:
     lib.oidnExecuteFilter.argtypes = [ctypes.c_void_p]
     lib.oidnReleaseFilter.argtypes = [ctypes.c_void_p]
     lib.oidnReleaseDevice.argtypes = [ctypes.c_void_p]
+    lib.oidnGetDeviceError.restype = ctypes.c_int
+    lib.oidnGetDeviceError.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char_p)]
 
 
 _api_path = _find_api_lib()
@@ -123,39 +121,79 @@ HAS_OIDN = HAS_NATIVE_CUDA_OIDN or HAS_PIP_OIDN
 
 
 def denoise_cuda_hdr_inplace(fb_device, width: int, height: int) -> None:
-    """in-place RT denoise on hdr linear float3 using cuda oidn shared buffer."""
+    """
+    Zero-Copy GPU Denoising.
+    OIDN reads and writes directly to Numba's VRAM pointer.
+    """
     from numba import cuda
 
     if not HAS_NATIVE_CUDA_OIDN or oidn_native is None:
         raise RuntimeError("native cuda oidn is not available")
 
-    # oidn.h: OIDN_FORMAT_FLOAT=1, FLOAT2=2, FLOAT3=3 (do not use 1 for rgb buffers)
-    OIDN_FORMAT_FLOAT3 = 3
+    format_float3 = 3 # OIDN format enum for 3-channel float32
+    device_type_cuda = 3 # OIDN device type enum for CUDA
+
+    debug = os.environ.get("OIDN_DEBUG") == "1"
+    before = None
+    if debug:
+        cuda.synchronize()
+        before = fb_device.copy_to_host()
 
     cuda.synchronize()
-    dev_id = int(cuda.get_current_device().id)
-    _ids = (ctypes.c_int * 1)(dev_id)
-    # null stream pointer -> default stream per oidn.h
-    device = oidn_native.oidnNewCUDADevice(_ids, None, 1)
+
+    # 1. Init Device
+    device = oidn_native.oidnNewDevice(device_type_cuda)
+    if not device:
+        error_msg = ctypes.c_char_p()
+        oidn_native.oidnGetDeviceError(None, ctypes.byref(error_msg))
+        err_str = error_msg.value.decode("utf-8") if error_msg.value else "Unknown"
+        raise RuntimeError(f"OIDN Init Error: {err_str}")
+
     oidn_native.oidnCommitDevice(device)
+
     filt = None
     try:
+        # 2. Init Filter
         filt = oidn_native.oidnNewFilter(device, b"RT")
+
+        # 3. Get the raw Numba VRAM pointer
         ptr = fb_device.device_ctypes_pointer.value
+
+        # 4. Bind the Numba pointer directly to OIDN (In-Place)
+        # We pass 'ptr' for both color (input) and output.
         oidn_native.oidnSetSharedFilterImage(
-            filt, b"color", ptr, OIDN_FORMAT_FLOAT3, width, height, 0, 0, 0
+            filt, b"color", ptr, format_float3, width, height, 0, 0, 0
         )
         oidn_native.oidnSetSharedFilterImage(
-            filt, b"output", ptr, OIDN_FORMAT_FLOAT3, width, height, 0, 0, 0
+            filt, b"output", ptr, format_float3, width, height, 0, 0, 0
         )
+
+        # 5. Prevent highlight clipping
         oidn_native.oidnSetFilterBool(filt, b"hdr", True)
+
+        # 6. Execute directly on the GPU
         oidn_native.oidnCommitFilter(filt)
         oidn_native.oidnExecuteFilter(filt)
+
+        msg = ctypes.c_char_p()
+        err = oidn_native.oidnGetDeviceError(device, ctypes.byref(msg))
+        if err != 0:
+            warnings.warn(
+                f"OIDN cuda error {err}: {msg.value.decode('utf-8') if msg.value else 'unknown'}",
+                RuntimeWarning,
+            )
     finally:
+        # Always clean up memory handles, even if execution fails
         if filt is not None:
             oidn_native.oidnReleaseFilter(filt)
         oidn_native.oidnReleaseDevice(device)
+
     cuda.synchronize()
+
+    if debug and before is not None:
+        after = fb_device.copy_to_host()
+        diff = np.abs(after - before)
+        print(f"[oidn] cuda diff mean={diff.mean():.6f} max={diff.max():.6f}")
 
 
 def denoise_pip_ldr_inplace(fb_ldr: np.ndarray, width: int, height: int) -> None:
