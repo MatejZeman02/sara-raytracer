@@ -20,6 +20,10 @@ tmp
 # compiled C extensions
 *.so
 
+# numpy cache
+*.npy
+*.npz
+
 # Nvidia nsight report
 *.ncu-rep
 *.csv

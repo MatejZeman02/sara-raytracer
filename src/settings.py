@@ -4,7 +4,7 @@ _DEFAULTS = {
     "DEVICE": "gpu",
     "CPU_DIMENSION": 500,
     "GPU_DIMENSION": 1024,
-    "SCENE_NAME": "box-advanced",
+    "SCENE_NAME": "dragon",
     "SAMPLES": 16,
     "MAX_BOUNCES": 16,
     "DENOISE": True,
@@ -15,6 +15,7 @@ _DEFAULTS = {
     # - "none": bypass tonemap and clip to [0, 1]
     # - "magenta": debug overshoot visualizer
     "TONEMAPPER": "custom-aces",
+    # "TONEMAPPER": "none",
     "IMG_FORMAT": "jpg",
     "USE_BVH_CACHE": True,
     "PRINT_STATS": False,
