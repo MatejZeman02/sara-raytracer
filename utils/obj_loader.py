@@ -7,7 +7,21 @@ import numpy as np
 from numba import njit
 from PIL import Image
 
-from src.constants import NO_TEXTURE
+from src.constants import (
+    NO_TEXTURE,
+    MAT_DIFFUSE_R,
+    MAT_DIFFUSE_G,
+    MAT_DIFFUSE_B,
+    MAT_SPECULAR_R,
+    MAT_SPECULAR_G,
+    MAT_SPECULAR_B,
+    MAT_EMISSIVE_R,
+    MAT_EMISSIVE_G,
+    MAT_EMISSIVE_B,
+    MAT_TRANSMISSION_R,
+    MAT_TRANSMISSION_G,
+    MAT_TRANSMISSION_B,
+)
 
 from . import tinyobjloader_py as tiny_obj_loader
 
@@ -99,6 +113,40 @@ def _build_texture_data(diffuse_texnames, base_dir):
     return mat_diffuse_tex_ids, texture_atlas, tex_widths, tex_heights
 
 
+def _srgb_to_linear(rgb):
+    rgb = np.maximum(rgb, 0.0)
+    return np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+
+
+def _linear_srgb_to_acescg(rgb):
+    # Matrix from linear sRGB (Rec.709 D65) to ACEScg (AP1 D60).
+    mat = np.array(
+        [
+            [0.613097, 0.339523, 0.047379],
+            [0.070194, 0.916355, 0.013451],
+            [0.020615, 0.109569, 0.869816],
+        ],
+        dtype=np.float32,
+    )
+    return rgb @ mat.T
+
+
+def _convert_material_colors_to_acescg(materials):
+    if materials.size == 0:
+        return materials
+
+    def convert_slice(start_idx):
+        rgb = materials[:, start_idx : start_idx + 3]
+        rgb_lin = _srgb_to_linear(rgb)
+        materials[:, start_idx : start_idx + 3] = _linear_srgb_to_acescg(rgb_lin)
+
+    convert_slice(MAT_DIFFUSE_R)
+    convert_slice(MAT_SPECULAR_R)
+    convert_slice(MAT_EMISSIVE_R)
+    convert_slice(MAT_TRANSMISSION_R)
+    return materials
+
+
 def load_light_cam_data(json_path):
     with open(json_path, "r") as f:
         data = json.load(f)
@@ -137,6 +185,7 @@ def load_scene(txt_path):
 
     mat_indices = np.array(raw_mat_idx, dtype=np.int32)
     materials = np.array(raw_mats, dtype=np.float32).reshape(-1, 14)
+    materials = _convert_material_colors_to_acescg(materials)
     mat_diffuse_tex_ids, texture_atlas, tex_widths, tex_heights = _build_texture_data(
         raw_diffuse_texnames, base_dir
     )

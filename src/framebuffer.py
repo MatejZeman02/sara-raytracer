@@ -1,12 +1,45 @@
 import math
+import os
+import numpy as np
 from numpy import float32, uint8
-from numba import njit, prange
+from numba import njit, prange, cuda
 from utils import device_jit
+from utils.vec_utils import apply_3d_lut_gpu
 from .constants import ONE, HALF, UINT8_MAX_F, UINT8_MAX_I, ZERO
 from .settings import settings
 
 # Extract value at import time so Numba sees a concrete string
 _TONEMAPPER = settings.TONEMAPPER
+
+
+def create_gamma_lut():
+    """Pre-calculates precise sRGB uint8 values for 65536 steps."""
+    cache_dir = "color-management/__pycache__"
+    cache_path = f"{cache_dir}/srgb_gamma.npz"
+
+    # load existing if already cached
+    if os.path.exists(cache_path):
+        lut = np.load(cache_path, allow_pickle=True)
+        return lut["lut"]
+
+    LUT_SIZE = 65536  # 16-bit
+    lut = np.zeros(LUT_SIZE, dtype=np.uint8)
+
+    for i in prange(LUT_SIZE):
+        val = i / float(LUT_SIZE - 1)
+
+        # Exact sRGB curve
+        if val <= 0.0031308:
+            srgb = 12.92 * val
+        else:
+            srgb = 1.055 * (val ** (1.0 / 2.4)) - 0.055
+
+        lut[i] = int(max(0.0, min(1.0, srgb)) * 255.0)
+
+    # cache for future runs
+    os.makedirs(cache_dir, exist_ok=True)
+    np.savez_compressed(cache_path, lut=lut)
+    return lut
 
 
 @device_jit
@@ -151,6 +184,10 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height):
 
             if _TONEMAPPER == "none":
                 cr_mapped, cg_mapped, cb_mapped = cr, cg, cb
+            elif _TONEMAPPER == "aces":
+                cr_mapped = aces_narkowicz_tonemap(cr)
+                cg_mapped = aces_narkowicz_tonemap(cg)
+                cb_mapped = aces_narkowicz_tonemap(cb)
             elif _TONEMAPPER == "magenta":
                 cr_mapped, cg_mapped, cb_mapped = magenta_debug_tonemap(cr, cg, cb)
             else:
@@ -180,34 +217,64 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height):
             fb_hdr[y, x, 2] = cb_mapped
 
 
+@cuda.jit
+def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height):
+    x, y = cuda.grid(2)
+    if x < width and y < height:
+        r = fb_hdr[y, x, 0]
+        g = fb_hdr[y, x, 1]
+        b = fb_hdr[y, x, 2]
+
+        # apply the LUT
+        out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
+
+        fb_ldr[y, x, 0] = out_r
+        fb_ldr[y, x, 1] = out_g
+        fb_ldr[y, x, 2] = out_b
+
+
+@cuda.jit
+def postprocess_full_gpu_kernel(fb_hdr, out_uint8, lut, gamma_lut, width, height):
+    """apply 3D lut + gamma lut and output uint8 directly on gpu."""
+    x, y = cuda.grid(2)
+    if x < width and y < height:
+        r = fb_hdr[y, x, 0]
+        g = fb_hdr[y, x, 1]
+        b = fb_hdr[y, x, 2]
+
+        out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
+
+        # clamp and map linear sdr to final uint8 via cached gamma lut
+        if out_r < 0.0:
+            out_r = 0.0
+        elif out_r > 1.0:
+            out_r = 1.0
+        if out_g < 0.0:
+            out_g = 0.0
+        elif out_g > 1.0:
+            out_g = 1.0
+        if out_b < 0.0:
+            out_b = 0.0
+        elif out_b > 1.0:
+            out_b = 1.0
+
+        lut_max = gamma_lut.shape[0] - 1
+        out_uint8[y, x, 0] = gamma_lut[int(out_r * lut_max)]
+        out_uint8[y, x, 1] = gamma_lut[int(out_g * lut_max)]
+        out_uint8[y, x, 2] = gamma_lut[int(out_b * lut_max)]
+
+
 @njit(parallel=True, fastmath=True)
-def postprocess_sdr_to_u8(fb_sdr, out, width, height):
+def postprocess_sdr_to_u8(fb_ldr, out_uint8, gamma_lut, width, height):
     """apply sRGB gamma to an SDR float32 buffer and write uint8 pixels.
 
     Runs on the CPU (host numpy arrays) after tonemapping and denoising.
     """
-    assert width > 0
-    assert height > 0
-    assert fb_sdr.shape[0] == height
-    assert fb_sdr.shape[1] == width
-    assert out.shape[0] == height
-    assert out.shape[1] == width
-
-    for y in prange(height):
-        for x in range(width):
-            for c in range(3):
-                assert (
-                    fb_sdr[y, x, c] >= ZERO
-                ), f"Negative color value in SDR buffer at x: {x}, y: {y}, channel: {c}"
-                assert (
-                    fb_sdr[y, x, c] == fb_sdr[y, x, c]
-                ), f"NaN color value in SDR buffer at x: {x}, y: {y}, channel: {c}"
-
-            cr = fb_sdr[y, x, 0]
-            cg = fb_sdr[y, x, 1]
-            cb = fb_sdr[y, x, 2]
-
-            # apply srgb transfer function and write to framebuffer
-            out[y, x, 0] = int(linear_to_srgb(cr) * UINT8_MAX_F)
-            out[y, x, 1] = int(linear_to_srgb(cg) * UINT8_MAX_F)
-            out[y, x, 2] = int(linear_to_srgb(cb) * UINT8_MAX_F)
+    for i in prange(height * width):
+        y = i // width
+        x = i - y * width
+        for c in range(3):
+            val = fb_ldr[y, x, c]
+            val_clamped = max(0.0, min(1.0, val))
+            index = int(val_clamped * (len(gamma_lut) - 1))
+            out_uint8[y, x, c] = gamma_lut[index]
