@@ -14,8 +14,7 @@ _TONEMAPPER = settings.TONEMAPPER
 
 def create_gamma_lut():
     """Pre-calculates precise sRGB uint8 values for 65536 steps."""
-    cache_dir = "color-management/__pycache__"
-    cache_path = f"{cache_dir}/srgb_gamma.npz"
+    cache_path = f"color-management/srgb_gamma.npz"
 
     # load existing if already cached
     if os.path.exists(cache_path):
@@ -37,7 +36,7 @@ def create_gamma_lut():
         lut[i] = int(max(0.0, min(1.0, srgb)) * 255.0)
 
     # cache for future runs
-    os.makedirs(cache_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     np.savez_compressed(cache_path, lut=lut)
     return lut
 
@@ -145,6 +144,7 @@ def linear_to_srgb(c):
 def magenta_debug_tonemap(r, g, b):
     """debug mode: visualize hdr values exceeding display gamut as magenta."""
     # check if any channel exceeds display gamut
+    # FIXME: doesn't work with AP1 / ACEScg primaries as working space?
     peak = max(r, max(g, b))
     if peak > ONE:
         # use the maximum channel as the luminance proxy

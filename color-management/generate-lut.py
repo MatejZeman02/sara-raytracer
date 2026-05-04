@@ -85,21 +85,27 @@ def build_custom_aces_lut():
     )
 
     # TONE MAPPING
-    # Apply a filmic S-Curve to the PEAK channel, then scale the whole vector.
-    peak = np.max(gamut_mapped, axis=-1, keepdims=True)
-
     # Narkowicz filmic curve coefficients
     a = 2.51
     b = 0.03
     c = 2.43
     d = 0.59
     e = 0.14
-    mapped_peak = (peak * (a * peak + b)) / (peak * (c * peak + d) + e)
 
-    # Scale by the curve's effect on the peak
-    ratio = np.where(peak > 0, mapped_peak / peak, 0.0)
-    tonemapped_linear = gamut_mapped * ratio
-    tonemapped_linear = np.clip(tonemapped_linear, 0.0, 1.0)  # to be safe
+    # PER-CHANNEL HIGHLIGHT ROLL-OFF
+    # Krzysztof Narkowicz recommends multiplying the input by 0.6
+    # to match the exposure of the official Academy ACES curve
+    exposed_gamut = gamut_mapped * 0.6
+    mapped_rgb = (exposed_gamut * (a * exposed_gamut + b)) / (
+        exposed_gamut * (c * exposed_gamut + d) + e
+    )
+    mapped_rgb = np.clip(mapped_rgb, 0.0, 1.0)
+
+    # REVERSE THE BAKED GAMMA
+    # The Narkowicz formula outputs sRGB gamma-encoded values.
+    # We must linearize it so your Numba GPU kernel can apply the final gamma_lut!
+    # (We use standard 2.2 approximation or colour.cctf_decoding)
+    tonemapped_linear = colour.cctf_decoding(mapped_rgb)
 
     # save as .npy for Numba
     np.save("color-management/acescg_to_srgb.npy", tonemapped_linear.astype(np.float32))
