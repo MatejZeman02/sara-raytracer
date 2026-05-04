@@ -4,6 +4,7 @@ numpy # standard for programming in python
 numba # cuda 'compiler'
 pybind11 # tiny obj loader bindings
 pillow # png support
+colour-science # for generating tonemapper lut
 # Optional: install oidn separately if denoising is desired and available.
 
 # optionally with conda:
