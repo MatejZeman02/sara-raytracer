@@ -166,6 +166,13 @@ Thumbs.db
 # Build artifacts
 utils/build/
 
+# intel oidn extraction leftovers (optional tools/docs; use pip or utils/lib only)
+utils/bin/
+utils/doc/
+utils/include/
 
-
+# oidn local libs (large binaries)
+!utils/lib/
+utils/lib/*
+!utils/lib/.gitkeep
 

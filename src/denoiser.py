@@ -1,54 +1,27 @@
-"""Intel Open Image Denoise (OIDN) wrapper for SDR path-traced buffers."""
+"""Intel Open Image Denoise routing: native cuda from utils/lib or pip cpu."""
 
-import warnings
+from utils.smart_denoiser import (
+    HAS_NATIVE_CUDA_OIDN,
+    HAS_OIDN,
+    HAS_PIP_OIDN,
+    denoise_cuda_hdr_inplace,
+    denoise_pip_ldr_inplace,
+)
 
-import numpy as np
-
-try:
-    import oidn
-    if not (hasattr(oidn, "NewDevice") and hasattr(oidn, "DEVICE_TYPE_CPU")):
-        raise ImportError("OIDN module lacks expected API")
-except (ImportError, AttributeError):
-    oidn = None
-    HAS_OIDN = False
-else:
-    HAS_OIDN = True
+__all__ = [
+    "HAS_NATIVE_CUDA_OIDN",
+    "HAS_OIDN",
+    "HAS_PIP_OIDN",
+    "denoise_cuda_hdr",
+    "denoise_pip_ldr",
+]
 
 
-def denoise(fb_sdr, width, height):
-    """run OIDN RT filter on a float32 SDR image buffer in-place.
-    The buffer is modified in-place.
-    Note: OIDN 1.4.3 via this Python wrapper does not expose the HDR boolean
-    flag through the Python API, so the filter runs in SDR mode. For the
-    typical path-traced range the difference is negligible after ACES tonemap.
-    """
-    assert fb_sdr.dtype == np.float32
-    assert fb_sdr.shape == (height, width, 3)
+def denoise_cuda_hdr(fb_device, width: int, height: int) -> None:
+    """hdr denoise on gpu framebuffer (requires utils/lib cuda oidn)."""
+    denoise_cuda_hdr_inplace(fb_device, width, height)
 
-    if not HAS_OIDN:
-        warnings.warn(
-            "OIDN is not installed; skipping denoising.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return
 
-    # C-contiguous layout (required for the output binding)
-    if not fb_sdr.flags.c_contiguous:
-        fb_sdr[:] = np.ascontiguousarray(fb_sdr)
-
-    device = oidn.NewDevice(oidn.DEVICE_TYPE_CPU)
-    oidn.CommitDevice(device)
-    try:
-        filt = oidn.NewFilter(device, "RT")
-        oidn.SetSharedFilterImage(
-            filt, "color", fb_sdr, oidn.FORMAT_FLOAT3, width, height
-        )
-        oidn.SetSharedFilterImage(
-            filt, "output", fb_sdr, oidn.FORMAT_FLOAT3, width, height
-        )
-        oidn.CommitFilter(filt)
-        oidn.ExecuteFilter(filt)
-        oidn.ReleaseFilter(filt)
-    finally:
-        oidn.ReleaseDevice(device)
+def denoise_pip_ldr(fb_ldr, width: int, height: int) -> None:
+    """ldr denoise on host buffer (pip cpu oidn)."""
+    denoise_pip_ldr_inplace(fb_ldr, width, height)
