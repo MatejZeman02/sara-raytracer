@@ -40,12 +40,26 @@ Use `./build_tinyobjloader.sh.sh python3.<version>` for compilation from the roo
 
 ***
 
-<img src="src/output/hw06/output.jpg" width="25%"/>
-
-<img src="src/output/hw06/magenta.jpg" width="25%"/>
-<img src="src/output/hw06/none.jpg" width="25%"/>
-<img src="src/output/hw06/aces.jpg" width="25%"/>
+<img src="src/output/hw06/custom-aces.jpg" width="25%"/>
+<img src="src/output/hw06/narkowitcz.jpg" width="25%"/>
 <img src="src/output/hw06/khronos.jpg" width="25%"/>
+
+***
+
+<img src="src/output/hw06/hill.jpg" width="25%"/>
+<img src="src/output/hw06/none.jpg" width="25%"/>
+<img src="src/output/hw06/magenta.jpg" width="25%"/>
+
+| Tonemapper    | Description                                          | Render time |
+| :------------ | :--------------------------------------------------- | ----------: |
+| `custom-aces` | ACEScg → sRGB 3D LUT with Oklab hue protection (GPU) |      4.52 s |
+| `narkowicz`   | Per-channel Narkowicz ACES fit, gamma-decoded (CPU)  |      5.53 s |
+| `khronos`     | Khronos PBR neutral curve, leaves SDR unchanged      |      5.42 s |
+| `hill`        | Stephen Hill linear-denominator ACES approximation   |      5.41 s |
+| `none`        | Bypass tonemap, clip HDR to [0, 1]                   |      5.39 s |
+| `magenta`     | Debug mode: visualise HDR overshoot as magenta       |      5.40 s |
+
+All renders: bunny scene, 16 samples, 1024×1024, denoise ON.
 
 ## Render Times
 
