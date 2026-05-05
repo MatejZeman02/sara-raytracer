@@ -107,6 +107,7 @@ def main():
         light_data,
         cam_data,
         bvh_nodes,
+        material_color_space,
     ) = load_or_build_scene(json_file, cache_file, t)
     t = _phase_time("bvh build", t)
 
@@ -184,6 +185,9 @@ def main():
     # Calculate camera exposure multiplier once on CPU
     exposure_mul = float(np.float32(2.0**settings.EXPOSURE_COMPENSATION))
 
+    # CSC flag: only convert ACEScg→sRGB when materials are in acescg
+    use_csc = material_color_space == "acescg"
+
     # Warmup postprocess kernels
     gamma_lut = create_gamma_lut()
     warm_sdr = np.zeros((1, 1, 3), dtype=np.float32)
@@ -211,6 +215,7 @@ def main():
             np.int32(16),
             np.int32(16),
             np.float32(exposure_mul),
+            use_csc,
         )
         postprocess_full_gpu_kernel[(1, 1), (16, 16)](
             warm_fb,
@@ -220,6 +225,7 @@ def main():
             np.int32(16),
             np.int32(16),
             np.float32(exposure_mul),
+            use_csc,
         )
         cuda.synchronize()
 
@@ -273,7 +279,7 @@ def main():
             fb_hdr_host = fb_hdr.copy_to_host()
             t_tonemap = time.perf_counter()
             tonemap_hdr_to_sdr(
-                fb_hdr_host, width_host, height_host, np.float32(exposure_mul)
+                fb_hdr_host, width_host, height_host, np.float32(exposure_mul), use_csc
             )
             t = _phase_time("tonemap HDR -> SDR", t_tonemap)
 
@@ -308,6 +314,7 @@ def main():
                 width,
                 height,
                 np.float32(exposure_mul),
+                use_csc,
             )
             cuda.synchronize()
             fb = fb_u8_device.copy_to_host()
@@ -329,6 +336,7 @@ def main():
                 width,
                 height,
                 np.float32(exposure_mul),
+                use_csc,
             )
             cuda.synchronize()
             fb_ldr_host = fb_ldr_device.copy_to_host()
@@ -348,7 +356,7 @@ def main():
         # CPU render path
         fb_hdr_host = fb_hdr
         tonemap_hdr_to_sdr(
-            fb_hdr_host, width_host, height_host, np.float32(exposure_mul)
+            fb_hdr_host, width_host, height_host, np.float32(exposure_mul), use_csc
         )
         t = _phase_time("tonemap HDR -> SDR", t)
 
