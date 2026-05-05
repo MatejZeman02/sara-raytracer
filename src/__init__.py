@@ -19,11 +19,23 @@ from PIL import Image
 
 # Core rendering
 from .render_kernel import render_kernel, collect_bvh_stats
-from .constants import BLOCK_THREADS, SEED, MAT_EMISSIVE_R, MAT_EMISSIVE_G, MAT_EMISSIVE_B
+from .constants import (
+    BLOCK_THREADS,
+    SEED,
+    MAT_EMISSIVE_R,
+    MAT_EMISSIVE_G,
+    MAT_EMISSIVE_B,
+)
 from .settings import settings
 from .setup_vectors import build_setup_vectors
 from .rng import create_rng_states
-from .framebuffer import postprocess_sdr_to_u8, postprocess_full_gpu_kernel, tonemap_hdr_to_sdr, tonemap_kernel, create_gamma_lut
+from .framebuffer import (
+    postprocess_sdr_to_u8,
+    postprocess_full_gpu_kernel,
+    tonemap_hdr_to_sdr,
+    tonemap_kernel,
+    create_gamma_lut,
+)
 
 # Refactored modules
 from ._scene import load_or_build_scene
@@ -122,9 +134,11 @@ def main():
     rng_count = np.int32(width) * np.int32(height)
     rng_states = create_rng_states(int(rng_count), seed=int(np.uint64(SEED)))
 
-    metrics_out = cuda.device_array(
-        (int(width_host) * int(height_host), 4), dtype=np.float32
-    ) if settings.DEVICE == "gpu" else np.zeros((int(width_host) * int(height_host), 4), dtype=np.float32)
+    metrics_out = (
+        cuda.device_array((int(width_host) * int(height_host), 4), dtype=np.float32)
+        if settings.DEVICE == "gpu"
+        else np.zeros((int(width_host) * int(height_host), 4), dtype=np.float32)
+    )
 
     manager = KernelManager(render_kernel)
     use_bvh = True
@@ -167,6 +181,9 @@ def main():
         print(f"\n[timing] {'total (+-)':<20}: {time.perf_counter() - t_start:7.2f} s")
         return
 
+    # Calculate camera exposure multiplier once on CPU
+    exposure_mul = float(np.float32(2.0**settings.EXPOSURE_COMPENSATION))
+
     # Warmup postprocess kernels
     gamma_lut = create_gamma_lut()
     warm_sdr = np.zeros((1, 1, 3), dtype=np.float32)
@@ -188,7 +205,12 @@ def main():
         warm_ldr = cuda.device_array((16, 16, 3), dtype=np.float32)
         warm_u8_device = cuda.device_array((16, 16, 3), dtype=np.uint8)
         tonemap_kernel[(1, 1), (16, 16)](
-            warm_fb, warm_ldr, lut_device, np.int32(16), np.int32(16)
+            warm_fb,
+            warm_ldr,
+            lut_device,
+            np.int32(16),
+            np.int32(16),
+            np.float32(exposure_mul),
         )
         postprocess_full_gpu_kernel[(1, 1), (16, 16)](
             warm_fb,
@@ -197,6 +219,7 @@ def main():
             gamma_lut_device,
             np.int32(16),
             np.int32(16),
+            np.float32(exposure_mul),
         )
         cuda.synchronize()
 
@@ -233,7 +256,7 @@ def main():
         selected_tonemapper = str(settings.TONEMAPPER).lower()
         use_gpu_lut_path = selected_tonemapper in ("custom-aces", "lut", "acescg")
         can_denoise_gpu, can_denoise_cpu = get_denoise_path(use_gpu_lut_path)
-        
+
         if not use_gpu_lut_path:
             # CPU tonemap path (custom, aces, etc.)
             print(
@@ -249,7 +272,9 @@ def main():
 
             fb_hdr_host = fb_hdr.copy_to_host()
             t_tonemap = time.perf_counter()
-            tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
+            tonemap_hdr_to_sdr(
+                fb_hdr_host, width_host, height_host, np.float32(exposure_mul)
+            )
             t = _phase_time("tonemap HDR -> SDR", t_tonemap)
 
             if settings.DENOISE and can_denoise_cpu and not can_denoise_gpu:
@@ -276,7 +301,13 @@ def main():
             )
             t_post = time.perf_counter()
             postprocess_full_gpu_kernel[grid, threads](
-                fb_hdr, fb_u8_device, lut_device, gamma_lut_device, width, height
+                fb_hdr,
+                fb_u8_device,
+                lut_device,
+                gamma_lut_device,
+                width,
+                height,
+                np.float32(exposure_mul),
             )
             cuda.synchronize()
             fb = fb_u8_device.copy_to_host()
@@ -292,12 +323,17 @@ def main():
             )
             t_tonemap = time.perf_counter()
             tonemap_kernel[grid, threads](
-                fb_hdr, fb_ldr_device, lut_device, width, height
+                fb_hdr,
+                fb_ldr_device,
+                lut_device,
+                width,
+                height,
+                np.float32(exposure_mul),
             )
             cuda.synchronize()
             fb_ldr_host = fb_ldr_device.copy_to_host()
             t = _phase_time("tonemap ", t_tonemap)
-            
+
             if settings.DENOISE and can_denoise_cpu:
                 t_dn = time.perf_counter()
                 denoise_cpu_ldr(fb_ldr_host, width_host, height_host)
@@ -311,9 +347,11 @@ def main():
     else:
         # CPU render path
         fb_hdr_host = fb_hdr
-        tonemap_hdr_to_sdr(fb_hdr_host, width_host, height_host)
+        tonemap_hdr_to_sdr(
+            fb_hdr_host, width_host, height_host, np.float32(exposure_mul)
+        )
         t = _phase_time("tonemap HDR -> SDR", t)
-        
+
         if settings.DENOISE:
             if HAS_PIP_OIDN:
                 print("[oidn] pip cpu (tonemap first, then denoise)")

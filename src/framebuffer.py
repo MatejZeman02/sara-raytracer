@@ -55,19 +55,30 @@ def render_normals(n, fb, x, y):
 
 @njit(fastmath=True)
 def aces_narkowicz_tonemap(x):
-    """aces filmic tonemapping curve approximate"""
+    """Narkowicz ACES fit, matched to custom LUT exposure, returning LINEAR SDR.
+
+    0.6 pre-scale aligns the brightness with the Academy's official 3D LUTs.
+    Gamma decode (2.2) prevents double-gamma when the global gamma_lut
+    is applied in the postprocess step.
+    """
     assert x >= ZERO
 
-    a = float32(2.51)  # aces_coeff_a
-    b = float32(0.03)  # aces_coeff_b
-    c = float32(2.43)  # aces_coeff_c
-    d = float32(0.59)  # aces_coeff_d
-    e = float32(0.14)  # aces_coeff_e
+    a = float32(2.51)
+    b = float32(0.03)
+    c = float32(2.43)
+    d = float32(0.59)
+    e = float32(0.14)
+
+    # 0.6 pre-scale to match the custom LUT exposure
+    x = x * float32(0.6)
 
     mapped = (x * (a * x + b)) / (x * (c * x + d) + e)
+
     mapped = max(ZERO, min(ONE, mapped))
 
-    return mapped
+    # Decode the baked-in gamma so the output is LINEAR SDR
+    # for the global gamma_lut to handle correctly
+    return math.pow(mapped, float32(2.2))
 
 
 if settings.DEVICE == "gpu":
@@ -156,11 +167,12 @@ def magenta_debug_tonemap(r, g, b):
 
 
 @njit(parallel=True, fastmath=True)
-def tonemap_hdr_to_sdr(fb_hdr, width, height):
+def tonemap_hdr_to_sdr(fb_hdr, width, height, exposure_mul):
     """apply tonemapping in-place to an hdr float32 buffer.
 
     the buffer is rewritten in-place with float32 sdr values in [0, 1].
     mode is determined by TONEMAPPER setting from settings.py.
+    camera exposure is applied as a linear multiplier before film stock.
     """
     assert width > 0
     assert height > 0
@@ -178,10 +190,12 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height):
                     fb_hdr[y, x, c] == fb_hdr[y, x, c]
                 ), f"NaN color value in HDR buffer at x: {x}, y: {y}, channel: {c}"
 
-            cr = fb_hdr[y, x, 0]
-            cg = fb_hdr[y, x, 1]
-            cb = fb_hdr[y, x, 2]
+            # apply camera exposure
+            cr = fb_hdr[y, x, 0] * exposure_mul
+            cg = fb_hdr[y, x, 1] * exposure_mul
+            cb = fb_hdr[y, x, 2] * exposure_mul
 
+            # apply film stock tonemap
             if _TONEMAPPER == "none":
                 cr_mapped, cg_mapped, cb_mapped = cr, cg, cb
             elif _TONEMAPPER == "aces":
@@ -218,14 +232,15 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height):
 
 
 @cuda.jit
-def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height):
+def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height, exposure_mul):
     x, y = cuda.grid(2)
     if x < width and y < height:
-        r = fb_hdr[y, x, 0]
-        g = fb_hdr[y, x, 1]
-        b = fb_hdr[y, x, 2]
+        # apply camera exposure
+        r = fb_hdr[y, x, 0] * exposure_mul
+        g = fb_hdr[y, x, 1] * exposure_mul
+        b = fb_hdr[y, x, 2] * exposure_mul
 
-        # apply the LUT
+        # apply film stock (LUT)
         out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
 
         fb_ldr[y, x, 0] = out_r
@@ -234,14 +249,18 @@ def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height):
 
 
 @cuda.jit
-def postprocess_full_gpu_kernel(fb_hdr, out_uint8, lut, gamma_lut, width, height):
-    """apply 3D lut + gamma lut and output uint8 directly on gpu."""
+def postprocess_full_gpu_kernel(
+    fb_hdr, out_uint8, lut, gamma_lut, width, height, exposure_mul
+):
+    """apply camera exposure, 3D lut + gamma lut and output uint8 on gpu."""
     x, y = cuda.grid(2)
     if x < width and y < height:
-        r = fb_hdr[y, x, 0]
-        g = fb_hdr[y, x, 1]
-        b = fb_hdr[y, x, 2]
+        # apply camera exposure
+        r = fb_hdr[y, x, 0] * exposure_mul
+        g = fb_hdr[y, x, 1] * exposure_mul
+        b = fb_hdr[y, x, 2] * exposure_mul
 
+        # apply film stock (LUT)
         out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
 
         # clamp and map linear sdr to final uint8 via cached gamma lut

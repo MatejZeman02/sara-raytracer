@@ -38,6 +38,14 @@ Use `./build_tinyobjloader.sh.sh python3.<version>` for compilation from the roo
 <img src="src/output/hw05/bunny.jpg" width="25%"/>
 <img src="src/output/hw05/dragon.jpg" width="25%"/>
 
+***
+
+<img src="src/output/hw06/output.jpg" width="25%"/>
+
+<img src="src/output/hw06/magenta.jpg" width="25%"/>
+<img src="src/output/hw06/none.jpg" width="25%"/>
+<img src="src/output/hw06/aces.jpg" width="25%"/>
+<img src="src/output/hw06/khronos.jpg" width="25%"/>
 
 ## Render Times
 
