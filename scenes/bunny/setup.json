@@ -1,5 +1,6 @@
 {
     "obj_file": "CornellBox-Bunny.obj",
+    "material_color_space": "acescg",
     "camera": {
         "pos": [
             0,

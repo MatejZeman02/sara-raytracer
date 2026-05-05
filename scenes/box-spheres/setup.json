@@ -1,5 +1,6 @@
 {
     "obj_file": "CornellBox-Sphere.obj",
+    "material_color_space": "rec709",
     "camera": {
         "pos": [
             0,
