@@ -11,6 +11,7 @@ LUT_SIZE = 32
 MIN_EV = -10.0
 MAX_EV = 10.0
 
+
 def build_custom_aces_lut():
     print(f"Generating {LUT_SIZE}x{LUT_SIZE}x{LUT_SIZE} LUT...")
 
@@ -28,7 +29,7 @@ def build_custom_aces_lut():
         linear_acescg,
         colour.RGB_COLOURSPACES["ACEScg"],
         colour.RGB_COLOURSPACES["sRGB"],
-        chromatic_adaptation_transform="CAT02", # white point adaptation
+        chromatic_adaptation_transform="CAT02",  # white point adaptation
     )
 
     # (OKLAB) GAMUT COMPRESSION
@@ -84,28 +85,24 @@ def build_custom_aces_lut():
         colour.RGB_COLOURSPACES["sRGB"].matrix_XYZ_to_RGB,
     )
 
-    # TONE MAPPING
-    # Narkowicz filmic curve coefficients
+    # TONE MAPPING: Narkowicz filmic curve on linear sRGB.
+    # 0.6 pre-scale aligns the simplified curve with the Academy RRT baseline.
     a = 2.51
     b = 0.03
     c = 2.43
     d = 0.59
     e = 0.14
 
-    # PER-CHANNEL HIGHLIGHT ROLL-OFF
-    # Krzysztof Narkowicz recommends multiplying the input by 0.6
-    # to match the exposure of the official Academy ACES curve
     exposed_gamut = gamut_mapped * 0.6
     mapped_rgb = (exposed_gamut * (a * exposed_gamut + b)) / (
         exposed_gamut * (c * exposed_gamut + d) + e
     )
     mapped_rgb = np.clip(mapped_rgb, 0.0, 1.0)
 
-    # REVERSE THE BAKED GAMMA
-    # The Narkowicz formula outputs sRGB gamma-encoded values.
-    # We must linearize it so your Numba GPU kernel can apply the final gamma_lut!
-    # (We use standard 2.2 approximation or colour.cctf_decoding)
-    tonemapped_linear = colour.cctf_decoding(mapped_rgb)
+    # 2.2 decode to linearize — output is linear SDR [0, 1].
+    # The renderer's gamma lut will then apply the sRGB gamma curve to produce
+    # the final uint8 image.
+    tonemapped_linear = mapped_rgb**2.2
 
     # save as .npy for Numba
     np.save("color-management/acescg_to_srgb.npy", tonemapped_linear.astype(np.float32))

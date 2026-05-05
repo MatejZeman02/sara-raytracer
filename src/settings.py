@@ -6,7 +6,7 @@ _DEFAULTS = {
     "DEVICE": "gpu",
     "CPU_DIMENSION": 500,
     "GPU_DIMENSION": 1024,
-    "SCENE_NAME": "bunny",
+    "SCENE_NAME": "box-scaled",
     "SAMPLES": 16,
     "MAX_BOUNCES": 16,
     "DENOISE": True,
@@ -20,15 +20,14 @@ _DEFAULTS = {
     # - "hill": Stephen Hill ACES approximation (CPU path)
     # - "none": bypass tonemap and clip to [0, 1]
     # - "magenta": debug overshoot visualizer
-    # "TONEMAPPER": "custom-aces",
-    "TONEMAPPER": "magenta",
+    "TONEMAPPER": "custom-aces",
     "IMG_FORMAT": "jpg",
     "USE_BVH_CACHE": True,
     "PRINT_STATS": False,
     "RENDER_NON_BVH_STATS": False,
     "COLLECT_BVH_STATS": False,
     "USE_SAH": True,
-    "USE_BINNING": True,
+    "USE_BINNING": False,
 }
 
 
@@ -43,21 +42,23 @@ class Settings:
     def _apply_cli_args(self):
         """Parse --key value pairs from sys.argv and override settings.
 
-        Aliases: --scene -> SCENE_NAME, --format -> IMG_FORMAT.
+        Aliases: --scene -> SCENE_NAME, --format -> IMG_FORMAT,
+        --exposure-compensation -> EXPOSURE_COMPENSATION.
         """
         _ALIASES = {"SCENE": "SCENE_NAME", "FORMAT": "IMG_FORMAT"}
         args = list(sys.argv[1:])
         i = 0
         while i < len(args):
             if args[i].startswith("--") and i + 1 < len(args):
-                key = args[i][2:].upper()
+                key = args[i][2:].upper().replace("-", "_")
                 key = _ALIASES.get(key, key)
                 val = args[i + 1]
                 if key in ("SAMPLES", "CPU_DIMENSION", "GPU_DIMENSION", "MAX_BOUNCES"):
                     val = int(val)
-                elif key in ("USE_SAH", "USE_BINNING", "USE_BVH_CACHE"):
-                    val = val.lower() not in ("false", "0", "no")
                 elif key in (
+                    "USE_SAH",
+                    "USE_BINNING",
+                    "USE_BVH_CACHE",
                     "DENOISE",
                     "PRINT_STATS",
                     "RENDER_NON_BVH_STATS",
@@ -66,6 +67,7 @@ class Settings:
                     val = val.lower() not in ("false", "0", "no")
                 elif key == "EXPOSURE_COMPENSATION":
                     val = float(val)
+                # print(f"[settings] {key} = {val}", flush=True)
                 self._values[key] = val
                 i += 2
             else:
@@ -94,5 +96,5 @@ class Settings:
 
 
 _settings = Settings()
-_settings._parse()
+_settings._parsed = True
 settings = _settings
