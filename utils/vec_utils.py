@@ -106,22 +106,18 @@ def neg(a):
 
 @device_jit
 def apply_3d_lut_gpu(r, g, b, lut):
-    """Trilinear interpolation of a 32x32x32 LUT on the GPU"""
-    EXPOSURE_STOPS = float32(-2.5)  # to be compareable to other tonemappers
-    EXPOSURE_COMPENSATION = float32(2.0) ** EXPOSURE_STOPS
+    """Trilinear interpolation of a 32x32x32 LUT on the GPU.
+
+    Expects linear-log exposure-adjusted input — camera exposure is applied
+    by the caller before invoking this function.
+    """
     MIN_EV = float32(-10.0)
     MAX_EV = float32(10.0)
 
-    # Log2 encode
-    r_log = (math.log2(max(r * EXPOSURE_COMPENSATION, float32(1e-8))) - MIN_EV) / (
-        MAX_EV - MIN_EV
-    )
-    g_log = (math.log2(max(g * EXPOSURE_COMPENSATION, float32(1e-8))) - MIN_EV) / (
-        MAX_EV - MIN_EV
-    )
-    b_log = (math.log2(max(b * EXPOSURE_COMPENSATION, float32(1e-8))) - MIN_EV) / (
-        MAX_EV - MIN_EV
-    )
+    # Log2 encode directly
+    r_log = (math.log2(max(r, float32(1e-8))) - MIN_EV) / (MAX_EV - MIN_EV)
+    g_log = (math.log2(max(g, float32(1e-8))) - MIN_EV) / (MAX_EV - MIN_EV)
+    b_log = (math.log2(max(b, float32(1e-8))) - MIN_EV) / (MAX_EV - MIN_EV)
 
     r_log = min(ONE, max(ZERO, r_log))
     g_log = min(ONE, max(ZERO, g_log))
