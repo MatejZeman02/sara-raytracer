@@ -7,23 +7,39 @@ import numpy as np
 from numba import njit
 from PIL import Image
 
-from src.constants import (
-    NO_TEXTURE,
-    MAT_DIFFUSE_R,
-    MAT_DIFFUSE_G,
-    MAT_DIFFUSE_B,
-    MAT_SPECULAR_R,
-    MAT_SPECULAR_G,
-    MAT_SPECULAR_B,
-    MAT_EMISSIVE_R,
-    MAT_EMISSIVE_G,
-    MAT_EMISSIVE_B,
-    MAT_TRANSMISSION_R,
-    MAT_TRANSMISSION_G,
-    MAT_TRANSMISSION_B,
-)
-
 from . import tinyobjloader_py as tiny_obj_loader
+
+# Import constants directly from module to avoid circular import through src.__init__
+# We use importlib to import the module without triggering src/__init__.py
+import importlib
+import os as _os
+
+# Find the constants module path directly
+_src_dir = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "src"
+)
+_constants_path = _os.path.join(_src_dir, "constants.py")
+
+# Import the module directly from its file path
+import importlib.util as _util
+
+_spec = _util.spec_from_file_location("_src_constants", _constants_path)
+_constants_mod = _util.module_from_spec(_spec)
+_spec.loader.exec_module(_constants_mod)
+
+NO_TEXTURE = _constants_mod.NO_TEXTURE
+MAT_DIFFUSE_R = _constants_mod.MAT_DIFFUSE_R
+MAT_DIFFUSE_G = _constants_mod.MAT_DIFFUSE_G
+MAT_DIFFUSE_B = _constants_mod.MAT_DIFFUSE_B
+MAT_SPECULAR_R = _constants_mod.MAT_SPECULAR_R
+MAT_SPECULAR_G = _constants_mod.MAT_SPECULAR_G
+MAT_SPECULAR_B = _constants_mod.MAT_SPECULAR_B
+MAT_EMISSIVE_R = _constants_mod.MAT_EMISSIVE_R
+MAT_EMISSIVE_G = _constants_mod.MAT_EMISSIVE_G
+MAT_EMISSIVE_B = _constants_mod.MAT_EMISSIVE_B
+MAT_TRANSMISSION_R = _constants_mod.MAT_TRANSMISSION_R
+MAT_TRANSMISSION_G = _constants_mod.MAT_TRANSMISSION_G
+MAT_TRANSMISSION_B = _constants_mod.MAT_TRANSMISSION_B
 
 
 @njit
@@ -73,9 +89,9 @@ _ACESCG_MAT_T = np.array(
 )
 
 
-def _build_texture_data(diffuse_texnames, base_dir, color_space="acescg"):
+def _build_texture_data(diffuse_texnames, base_dir):
     # map material -> texture id, and build a padded texture atlas for device kernels
-    # Textures are loaded as sRGB from files and converted to the target color space
+    # Textures are loaded as sRGB from files and converted to acescg working space.
     num_materials = len(diffuse_texnames)
     mat_diffuse_tex_ids = np.full(num_materials, NO_TEXTURE, dtype=np.int32)
 
@@ -99,14 +115,11 @@ def _build_texture_data(diffuse_texnames, base_dir, color_space="acescg"):
             tex_img = Image.open(tex_path).convert("RGB")
             tex_arr = np.asarray(tex_img, dtype=np.float32) / 255.0
 
-            # convert from MTL sRGB to target color space
-            if color_space == "rec709":
-                tex_arr = _srgb_to_linear(tex_arr)
-            elif color_space == "acescg":
-                tex_arr_lin = _srgb_to_linear(tex_arr)
-                tex_arr = np.tensordot(
-                    tex_arr_lin, _ACESCG_MAT_T, axes=([2], [1])
-                ).reshape(tex_arr_lin.shape)
+            # convert from MTL sRGB → linear sRGB → acescg (ap1 d60)
+            tex_arr_lin = _srgb_to_linear(tex_arr)
+            tex_arr = np.tensordot(tex_arr_lin, _ACESCG_MAT_T, axes=([2], [1])).reshape(
+                tex_arr_lin.shape
+            )
 
             texture_images.append(tex_arr)
             texture_heights.append(tex_arr.shape[0])
@@ -170,37 +183,22 @@ def _convert_material_colors_to_acescg(materials):
     return materials
 
 
-def _apply_material_color_space(materials, color_space: str):
-    """Convert material colors to the target color space.
+def _apply_material_color_space(materials):
+    """Convert material colors from MTL sRGB to ACEScg working space.
+
+    all materials are converted to acescg (ap1 d60) at load time.
+    textures are converted from sRGB → linear sRGB → acescg.
 
     Args:
         materials: array shaped (N, 14) — RGB channels at indices 0, 3, 6, 9
-        color_space: "acescg" (ap1) or "rec709" (linear sRGB)
     """
-    if color_space == "acescg":
-        return _convert_material_colors_to_acescg(materials)
-    # rec709: convert from MTL sRGB to linear sRGB, keep in rec709
-    if materials.size == 0:
-        return materials
-
-    def convert_slice(start_idx):
-        rgb = materials[:, start_idx : start_idx + 3]
-        rgb[:, 0] = _srgb_to_linear(rgb[:, 0])
-        rgb[:, 1] = _srgb_to_linear(rgb[:, 1])
-        rgb[:, 2] = _srgb_to_linear(rgb[:, 2])
-
-    convert_slice(MAT_DIFFUSE_R)
-    convert_slice(MAT_SPECULAR_R)
-    convert_slice(MAT_EMISSIVE_R)
-    convert_slice(MAT_TRANSMISSION_R)
-    return materials
+    return _convert_material_colors_to_acescg(materials)
 
 
 def load_light_cam_data(json_path):
     with open(json_path, "r") as f:
         data = json.load(f)
-    color_space = data.get("material_color_space", "acescg")
-    return data["light"], data["camera"], data["obj_file"], color_space
+    return data["light"], data["camera"], data["obj_file"], "acescg"
 
 
 def load_scene(txt_path):
@@ -235,9 +233,9 @@ def load_scene(txt_path):
 
     mat_indices = np.array(raw_mat_idx, dtype=np.int32)
     materials = np.array(raw_mats, dtype=np.float32).reshape(-1, 14)
-    materials = _apply_material_color_space(materials, material_color_space)
+    materials = _apply_material_color_space(materials)
     mat_diffuse_tex_ids, texture_atlas, tex_widths, tex_heights = _build_texture_data(
-        raw_diffuse_texnames, base_dir, material_color_space
+        raw_diffuse_texnames, base_dir
     )
 
     num_tris = len(mat_indices)
