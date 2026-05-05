@@ -54,7 +54,7 @@ def render_normals(n, fb, x, y):
 
 
 @njit(fastmath=True)
-def aces_narkowicz_tonemap(x):
+def narkowicz_tonemap(x):
     """Narkowicz ACES fit, matched to custom LUT exposure, returning LINEAR SDR.
 
     0.6 pre-scale aligns the brightness with the Academy's official 3D LUTs.
@@ -79,6 +79,26 @@ def aces_narkowicz_tonemap(x):
     # Decode the baked-in gamma so the output is LINEAR SDR
     # for the global gamma_lut to handle correctly
     return math.pow(mapped, float32(2.2))
+
+
+@njit(fastmath=True)
+def hill_tonemap(x):
+    """Stephen Hill ACES approximation tonemapper.
+
+    Simplified version of the ACES filmic curve: linear denominator
+    instead of the original quadratic. Returns LINEAR SDR for the
+    global gamma_lut to handle.
+    """
+    assert x >= ZERO
+
+    a = float32(2.51)
+    b = float32(0.03)
+    d = float32(0.59)
+    e = float32(0.14)
+
+    mapped = (x * (a * x + b)) / (x * d + e)
+
+    return max(ZERO, min(ONE, mapped))
 
 
 if settings.DEVICE == "gpu":
@@ -141,7 +161,7 @@ def write_hdr_to_fb(cr, cg, cb, fb_hdr, x, y):
     fb_hdr[y, x, 2] = cb
 
 
-METHOD = "none"  # "none", "khronos" or "aces"
+METHOD = "none"  # "none", "khronos", "narkowicz" or "hill"
 
 
 @njit(fastmath=True)
@@ -167,12 +187,44 @@ def magenta_debug_tonemap(r, g, b):
 
 
 @njit(parallel=True, fastmath=True)
-def tonemap_hdr_to_sdr(fb_hdr, width, height, exposure_mul):
+def acescg_to_linear_srgb(fb_hdr, width, height):
+    """Convert ACEScg (ap1) to linear sRGB using industry-standard CSC matrix.
+
+    Handles both chromatic adaptation (D60 → D65) and primary conversion.
+    Modifies fb_hdr in-place.
+    """
+    # ACEScg → linear sRGB (Rec.709) chromatic adaptation matrix
+    for y in prange(height):
+        for x in range(width):
+            r = fb_hdr[y, x, 0]
+            g = fb_hdr[y, x, 1]
+            b = fb_hdr[y, x, 2]
+            fb_hdr[y, x, 0] = (
+                r * float32(1.7050796)
+                + g * float32(-0.6218677)
+                + b * float32(-0.0832119)
+            )
+            fb_hdr[y, x, 1] = (
+                r * float32(-0.1302553)
+                + g * float32(1.1408020)
+                + b * float32(-0.0105467)
+            )
+            fb_hdr[y, x, 2] = (
+                r * float32(-0.0240075)
+                + g * float32(-0.1289677)
+                + b * float32(1.1529752)
+            )
+
+
+@njit(parallel=True, fastmath=True)
+def tonemap_hdr_to_sdr(fb_hdr, width, height, exposure_mul, use_csc=True):
     """apply tonemapping in-place to an hdr float32 buffer.
 
     the buffer is rewritten in-place with float32 sdr values in [0, 1].
     mode is determined by TONEMAPPER setting from settings.py.
     camera exposure is applied as a linear multiplier before film stock.
+    if use_csc is True, output is converted from ACEScg (ap1) to linear sRGB
+    after tonemapping so the sRGB gamma LUT applies in the correct color space.
     """
     assert width > 0
     assert height > 0
@@ -198,12 +250,16 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height, exposure_mul):
             # apply film stock tonemap
             if _TONEMAPPER == "none":
                 cr_mapped, cg_mapped, cb_mapped = cr, cg, cb
-            elif _TONEMAPPER == "aces":
-                cr_mapped = aces_narkowicz_tonemap(cr)
-                cg_mapped = aces_narkowicz_tonemap(cg)
-                cb_mapped = aces_narkowicz_tonemap(cb)
+            elif _TONEMAPPER == "narkowicz":
+                cr_mapped = narkowicz_tonemap(cr)
+                cg_mapped = narkowicz_tonemap(cg)
+                cb_mapped = narkowicz_tonemap(cb)
             elif _TONEMAPPER == "magenta":
                 cr_mapped, cg_mapped, cb_mapped = magenta_debug_tonemap(cr, cg, cb)
+            elif _TONEMAPPER == "hill":
+                cr_mapped = hill_tonemap(cr)
+                cg_mapped = hill_tonemap(cg)
+                cb_mapped = hill_tonemap(cb)
             else:
                 # default: khronos pbr neutral tonemapper
                 cr_mapped, cg_mapped, cb_mapped = khronos_pbr_neutral_tonemapper(
@@ -230,9 +286,14 @@ def tonemap_hdr_to_sdr(fb_hdr, width, height, exposure_mul):
             fb_hdr[y, x, 1] = cg_mapped
             fb_hdr[y, x, 2] = cb_mapped
 
+    # convert from ACEScg (ap1) to linear sRGB after tonemapping
+    # when material_color_space is rec709, skip this — output is already correct
+    if use_csc:
+        acescg_to_linear_srgb(fb_hdr, width, height)
+
 
 @cuda.jit
-def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height, exposure_mul):
+def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height, exposure_mul, use_lut=True):
     x, y = cuda.grid(2)
     if x < width and y < height:
         # apply camera exposure
@@ -240,8 +301,12 @@ def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height, exposure_mul):
         g = fb_hdr[y, x, 1] * exposure_mul
         b = fb_hdr[y, x, 2] * exposure_mul
 
-        # apply film stock (LUT)
-        out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
+        # apply film stock (LUT) — skip for rec709 materials
+        if use_lut:
+            out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
+        else:
+            # rec709: already in linear sRGB, pass through
+            out_r, out_g, out_b = r, g, b
 
         fb_ldr[y, x, 0] = out_r
         fb_ldr[y, x, 1] = out_g
@@ -250,9 +315,13 @@ def tonemap_kernel(fb_hdr, fb_ldr, lut, width, height, exposure_mul):
 
 @cuda.jit
 def postprocess_full_gpu_kernel(
-    fb_hdr, out_uint8, lut, gamma_lut, width, height, exposure_mul
+    fb_hdr, out_uint8, lut, gamma_lut, width, height, exposure_mul, use_lut=True
 ):
-    """apply camera exposure, 3D lut + gamma lut and output uint8 on gpu."""
+    """apply camera exposure, 3D lut + gamma lut and output uint8 on gpu.
+
+    use_lut=False skips the 3D LUT — for rec709 materials the HDR buffer
+    is already in linear sRGB, so only the gamma LUT is needed.
+    """
     x, y = cuda.grid(2)
     if x < width and y < height:
         # apply camera exposure
@@ -260,8 +329,12 @@ def postprocess_full_gpu_kernel(
         g = fb_hdr[y, x, 1] * exposure_mul
         b = fb_hdr[y, x, 2] * exposure_mul
 
-        # apply film stock (LUT)
-        out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
+        # apply film stock (LUT) — skip for rec709 materials
+        if use_lut:
+            out_r, out_g, out_b = apply_3d_lut_gpu(r, g, b, lut)
+        else:
+            # rec709: already in linear sRGB, pass through
+            out_r, out_g, out_b = r, g, b
 
         # clamp and map linear sdr to final uint8 via cached gamma lut
         if out_r < 0.0:
