@@ -1,12 +1,18 @@
 """Utilities for rendering and device management."""
 
-from src.settings import settings  # type: ignore
-from numba import njit
-from numba import cuda
+from numba import njit, cuda
+
+
+def _get_settings():
+    """Deferred import of settings to avoid circular imports."""
+    from src.settings import settings
+
+    return settings
 
 
 def device_jit(*args, **kwargs):
     """JIT compilation that routes to CPU or GPU based on settings."""
+    settings = _get_settings()
     if settings.DEVICE == "cpu":
         # Translate boolean inline/device to string for cpu njit
         if "inline" in kwargs:
