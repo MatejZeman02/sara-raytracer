@@ -107,7 +107,7 @@ def neg(a):
 @device_jit
 def apply_3d_lut_gpu(r, g, b, lut):
     """Trilinear interpolation of a 32x32x32 LUT on the GPU"""
-    EXPOSURE_STOPS = float32(1.5)  # to be compareable to other tonemappers
+    EXPOSURE_STOPS = float32(-2.5)  # to be compareable to other tonemappers
     EXPOSURE_COMPENSATION = float32(2.0) ** EXPOSURE_STOPS
     MIN_EV = float32(-10.0)
     MAX_EV = float32(10.0)
