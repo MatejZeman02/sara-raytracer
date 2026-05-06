@@ -20,7 +20,7 @@ import tempfile
 PROJECT = "/home/bubakulus/work/mata/prog/pg1"
 OUT_DIR = os.path.join(PROJECT, "src", "output", "hw06")
 SRC_OUT = os.path.join(PROJECT, "src", "output")
-CONDA = "/home/bubakulus/miniforge3/bin/conda run -n raytracer"
+CONDA = "/home/bubakulus/miniforge3/bin/conda run -n raytracer" # FIXME: hardcoded path to conda env
 
 MAPPERS = [
     ("custom", "custom.jpg"),
