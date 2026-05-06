@@ -9,12 +9,14 @@ from utils.obj_loader import load_light_cam_data, load_scene
 
 
 def _read_color_space(json_file: str) -> str:
-    """Return acescg — the renderer operates in a single working space.
+    """Read the declared material color space from setup.json.
 
-    material_color_space is still read from setup.json for cache compatibility,
-    but the renderer always converts all materials to acescg at load time.
+    Returns the material_color_space value from setup.json, defaulting
+    to "rec.709" for scenes that don't declare one (legacy compatibility).
     """
-    return "acescg"
+    with open(json_file, "r") as f:
+        data = json.load(f)
+    return data.get("material_color_space", "rec.709")
 
 
 def load_or_build_scene(json_file: str, cache_file: str, t: float) -> tuple:
@@ -22,7 +24,8 @@ def load_or_build_scene(json_file: str, cache_file: str, t: float) -> tuple:
 
     Returns:
         (triangles, tri_normals, tri_uvs, mat_indices, materials, mat_diffuse_tex_ids,
-         diffuse_textures, tex_widths, tex_heights, light_data, cam_data, bvh_nodes, material_color_space)
+         diffuse_textures, tex_widths, tex_heights, light_data, cam_data, bvh_nodes,
+         material_color_space, base_exposure)
     """
     required_cache_keys = (
         "bvh_nodes",
@@ -59,7 +62,7 @@ def load_or_build_scene(json_file: str, cache_file: str, t: float) -> tuple:
         diffuse_textures = cache["diffuse_textures"]
         tex_widths = cache["tex_widths"]
         tex_heights = cache["tex_heights"]
-        light_data, cam_data, _, _ = load_light_cam_data(json_file)
+        light_data, cam_data, _, _, base_exposure = load_light_cam_data(json_file)
     else:
         import time as _time
 
@@ -75,6 +78,7 @@ def load_or_build_scene(json_file: str, cache_file: str, t: float) -> tuple:
             tex_heights,
             light_data,
             cam_data,
+            base_exposure,
         ) = load_scene(json_file)
         assert len(triangles) > 0
 
@@ -119,5 +123,6 @@ def load_or_build_scene(json_file: str, cache_file: str, t: float) -> tuple:
         cam_data,
         bvh_nodes,
         material_color_space,
+        base_exposure,
         bvh_build_time,
     )

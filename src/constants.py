@@ -7,7 +7,7 @@ from numpy import float32, uint8, random
 # used exclusively for the `det` check in intersect_triangle (strict tolerance)
 DET_EPSILON = float32(1e-9)
 # used for t-distance checks and shadow ray origin offsets (scene-scale tolerance)
-RAY_EPSILON = float32(1e-6)
+RAY_EPSILON = float32(1e-5)
 DIST_TO_LIGHT_MULT = float32(1e-4)  # t max safeguard for shadow rays
 
 BARYCENTRIC_EPSILON = float32(1e-7)  # acounts with float32 precision error
@@ -56,7 +56,7 @@ PI = float32(math.pi)
 UINT8_MAX_F = float32(255.0)
 UINT8_MAX_I = uint8(255)
 
-MISS_GRAY_F = float32(20.0)  # background color in linear Rec.709
+MISS_GRAY_F = float32(0.0)  # background color in linear Rec.709
 MISS_GRAY = MISS_GRAY_F / UINT8_MAX_F
 MISS_COLOR_F = (MISS_GRAY, MISS_GRAY, MISS_GRAY)
 

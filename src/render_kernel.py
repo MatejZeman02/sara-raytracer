@@ -160,7 +160,6 @@ def render_pixel(
                     out_stats[y, x, QUERY_DEPTH] = max_stack_depth
 
             if hit_idx == -1:
-                # print("*")
                 final_r += thr_r * MISS_COLOR_F[0]
                 final_g += thr_g * MISS_COLOR_F[1]
                 final_b += thr_b * MISS_COLOR_F[2]
