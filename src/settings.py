@@ -6,24 +6,25 @@ _DEFAULTS = {
     "DEVICE": "gpu",
     "CPU_DIMENSION": 500,
     "GPU_DIMENSION": 1024,
-    "SCENE_NAME": "bunny",
-    "SAMPLES": 32,
-    "MAX_BOUNCES": 32,
+    "SCENE_NAME": "dragon",
+    "SAMPLES": 16,
+    "MAX_BOUNCES": 16,
     "DENOISE": True,
     # Camera exposure in standard EV stops. Multiplied as linear factor
     # (2**EV) onto raw HDR values before film-stock tonemapping.
     "EXPOSURE_COMPENSATION": 3,
     # valid modes:
-    # - "custom-aces": ACEScg -> sRGB baked 3D LUT (gpu path)
+    # - "custom": ACEScg -> sRGB baked 3D LUT (gpu path)
     # - "khronos": Khronos PBR neutral curve
     # - "narkowicz": per-channel Narkowicz ACES fit (CPU path)
     # - "hill": Stephen Hill ACES approximation (CPU path)
     # - "none": bypass tonemap and clip to [0, 1]
     # - "magenta": debug overshoot visualizer
-    "TONEMAPPER": "custom-aces",
+    "TONEMAPPER": "custom",
+    # "TONEMAPPER": "narkowicz",
     # "TONEMAPPER": "none",
     "IMG_FORMAT": "jpg",
-    "USE_BVH_CACHE": False,
+    "USE_BVH_CACHE": True,
     "PRINT_STATS": False,
     "RENDER_NON_BVH_STATS": False,
     "COLLECT_BVH_STATS": False,

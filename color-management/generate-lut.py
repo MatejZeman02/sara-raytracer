@@ -15,34 +15,39 @@ MAX_EV = 10.0
 def build_custom_aces_lut():
     print(f"Generating {LUT_SIZE}x{LUT_SIZE}x{LUT_SIZE} LUT...")
 
-    # create a LUT_SIZE**3 grid of values from 0.0 to 1.0
+    # grid generation
+    # build a regular 3D grid in [0, 1] and un-log it to full ACEScg HDR
     x = np.linspace(0, 1, LUT_SIZE)
     r, g, b = np.meshgrid(x, x, x, indexing="ij")
     grid_01 = np.stack((r, g, b), axis=-1)
 
-    # Un-Log the grid to Linear ACEScg HDR values
     stops = grid_01 * (MAX_EV - MIN_EV) + MIN_EV
     linear_acescg = 2.0**stops
 
-    # ACEScg -> Linear sRGB
+    # acescg to linear srgb
+    # transform colour space with cat02 chromatic adaptation
     linear_srgb = colour.RGB_to_RGB(
         linear_acescg,
         colour.RGB_COLOURSPACES["ACEScg"],
         colour.RGB_COLOURSPACES["sRGB"],
-        chromatic_adaptation_transform="CAT02",  # white point adaptation
+        chromatic_adaptation_transform="CAT02",
     )
 
-    # (OKLAB) GAMUT COMPRESSION
-    # Convert Linear sRGB to Oklab
-    XYZ = colour.RGB_to_XYZ(
-        linear_srgb,
-        colour.RGB_COLOURSPACES["sRGB"].whitepoint,
-        colour.RGB_COLOURSPACES["sRGB"].whitepoint,
-        colour.RGB_COLOURSPACES["sRGB"].matrix_RGB_to_XYZ,
+    # asymmetrical crosstalk
+    # simulates physical film emulsion where colors bleed unevenly
+    # red bleeds into green, green into blue, blue into red
+    crosstalk_matrix = np.array(
+        [[0.85, 0.10, 0.05], [0.05, 0.85, 0.10], [0.10, 0.05, 0.85]], dtype=np.float32
     )
+
+    linear_srgb = np.dot(linear_srgb, crosstalk_matrix.T)
+
+    # oklab gamut compression
+    # convert to oklab to detect and squash out-of-gamut chroma
+    XYZ = colour.RGB_to_XYZ(linear_srgb, "sRGB")
     oklab = colour.XYZ_to_Oklab(XYZ)
 
-    # Vectorized Binary Search for Chroma Compression
+    # vectorized binary search for chroma compression
     min_chan = np.min(linear_srgb, axis=-1, keepdims=True)
     needs_compression = min_chan < 0
 
@@ -52,56 +57,83 @@ def build_custom_aces_lut():
     # 15 iterations yields plenty of precision for float32
     for _ in range(15):
         mid = (low + high) / 2.0
-
-        # Scale the 'a' and 'b' channels (Chroma)
         oklab_test = oklab.copy()
         oklab_test[..., 1:3] *= np.where(needs_compression, mid, 1.0)
 
-        # Convert back to test if it fits
         XYZ_test = colour.Oklab_to_XYZ(oklab_test)
-        rgb_test = colour.XYZ_to_RGB(
-            XYZ_test,
-            colour.RGB_COLOURSPACES["sRGB"].whitepoint,
-            colour.RGB_COLOURSPACES["sRGB"].whitepoint,
-            colour.RGB_COLOURSPACES["sRGB"].matrix_XYZ_to_RGB,
-        )
+        rgb_test = colour.XYZ_to_RGB(XYZ_test, "sRGB")
 
         min_test = np.min(rgb_test, axis=-1, keepdims=True)
-
-        # If still negative, we have too much Chroma (move high bound down)
         high = np.where(min_test < 0, mid, high)
-        # If positive, we can afford more Chroma (move low bound up)
         low = np.where(min_test >= 0, mid, low)
 
-    # Apply the final solved Chroma scale
+    # apply the final solved chroma scale
     oklab_final = oklab.copy()
     oklab_final[..., 1:3] *= np.where(needs_compression, low, 1.0)
 
+    # path to white highlight desaturation
+    # gradually reduce chroma as lightness rises toward pure white
+    l = oklab_final[..., 0]
+    desat_start = 1.5
+    desat_end = 2.0
+
+    # linear falloff from 1.0 (at desat_start) to 0.0 (at desat_end)
+    factor = 1.0 - np.clip((l - desat_start) / (desat_end - desat_start), 0.0, 1.0)
+    # hermite smoothstep for a photographic, gradual transition
+    factor = factor * factor * (3.0 - 2.0 * factor)
+    oklab_final[..., 1:3] *= factor[..., np.newaxis]
+
     XYZ_final = colour.Oklab_to_XYZ(oklab_final)
-    gamut_mapped = colour.XYZ_to_RGB(
-        XYZ_final,
-        colour.RGB_COLOURSPACES["sRGB"].whitepoint,
-        colour.RGB_COLOURSPACES["sRGB"].whitepoint,
-        colour.RGB_COLOURSPACES["sRGB"].matrix_XYZ_to_RGB,
-    )
+    gamut_mapped = colour.XYZ_to_RGB(XYZ_final, "sRGB")
 
-    # TONE MAPPING: Narkowicz filmic curve on linear sRGB.
-    # 0.6 pre-scale aligns the simplified curve with the Academy RRT baseline.
-    a = 2.51
-    b = 0.03
-    c = 2.43
-    d = 0.59
-    e = 0.14
+    # uchimura tonemapping
+    # extract achromatic norm to preserve hue during tonemapping,
+    # then apply the uchimura curve to luminance before scaling back
+    norm = np.max(gamut_mapped, axis=-1, keepdims=True)
 
-    exposed_gamut = gamut_mapped * 0.6
-    mapped_rgb = (exposed_gamut * (a * exposed_gamut + b)) / (
-        exposed_gamut * (c * exposed_gamut + d) + e
-    )
+    # exposure pre-scale (equivalent to Academy RRT 0.6 factor)
+    exposed_norm = norm * 0.6
+
+    # ensure no negative values enter the math curve
+    x = np.maximum(exposed_norm, 0.0)
+
+    # uchimura curve parameters
+    p = 1.0  # max display brightness
+    a = 1.1  # contrast
+    m = 0.22  # linear section start
+    l_len = 0.4  # linear section length
+    c = 1.2  # black tightness and toe drop
+    b = 0.0  # black offset
+
+    # uchimura math logic — precompute breakpoints
+    l0 = ((p - m) * l_len) / a
+    l0_cap = m - m / a
+    s0 = m + l0
+    s1 = m + a * l0
+    c2 = (a * p) / (p - s1)
+    cp = -c2 / p
+
+    # piecewise blend weights
+    w0 = 1.0 - np.clip((x - l0_cap) / (m - l0_cap), 0.0, 1.0)
+    w2 = np.clip((x - s0) / (p - s0), 0.0, 1.0)
+    w1 = 1.0 - w0 - w2
+
+    # safe division for the toe math
+    safe_m = np.where(m == 0.0, 1e-6, m)
+    t = safe_m * (x / safe_m) ** c + b
+    s = p - (p - s1) * np.exp(cp * (x - s0))
+    l_curve = safe_m + a * (x - safe_m)
+
+    mapped_norm = t * w0 + l_curve * w1 + s * w2
+
+    # calculate scale ratio to apply tonemap back to rgb channels
+    scale = np.zeros_like(norm)
+    np.divide(mapped_norm, norm, out=scale, where=norm > 0)
+
+    mapped_rgb = gamut_mapped * scale
     mapped_rgb = np.clip(mapped_rgb, 0.0, 1.0)
 
-    # 2.2 decode to linearize — output is linear SDR [0, 1].
-    # The renderer's gamma lut will then apply the sRGB gamma curve to produce
-    # the final uint8 image.
+    # output log decode
     tonemapped_linear = mapped_rgb**2.2
 
     # save as .npy for Numba

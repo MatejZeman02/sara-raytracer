@@ -263,14 +263,14 @@ def main():
     # Post-processing and denoising
     if settings.DEVICE == "gpu":
         selected_tonemapper = str(settings.TONEMAPPER).lower()
-        use_gpu_lut_path = selected_tonemapper in ("custom-aces", "lut", "acescg")
+        use_gpu_lut_path = selected_tonemapper in ("custom", "lut", "acescg")
         can_denoise_gpu, can_denoise_cpu = get_denoise_path(use_gpu_lut_path)
 
         if not use_gpu_lut_path:
             # CPU tonemap path (custom, aces, etc.)
             print(
                 f"[tonemapper] {selected_tonemapper} uses cpu tonemap path "
-                "(gpu lut path is custom-aces-only for ACEScg->sRGB)"
+                "(gpu lut path is custom-only for ACEScg->sRGB)"
             )
 
             if settings.DENOISE and can_denoise_gpu:
