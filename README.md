@@ -47,10 +47,10 @@ Use `./build_tinyobjloader.sh.sh python3.<version>` for compilation from the roo
 ***
 **Tonemappers**
 
-custom-aces, narkowitcz approximation, hill approximation
+custom, narkowicz approximation, hill approximation
 
-<img src="src/output/hw06/custom-aces.jpg" width="25%"/>
-<img src="src/output/hw06/narkowitcz.jpg" width="25%"/>
+<img src="src/output/hw06/custom.jpg" width="25%"/>
+<img src="src/output/hw06/narkowicz.jpg" width="25%"/>
 <img src="src/output/hw06/hill.jpg" width="25%"/>
 
 khronos, none - clip, magenta on HDR
@@ -59,14 +59,14 @@ khronos, none - clip, magenta on HDR
 <img src="src/output/hw06/none.jpg" width="25%"/>
 <img src="src/output/hw06/magenta.jpg" width="25%"/>
 
-| Tonemapper    | Description                                          |
-| :------------ | :--------------------------------------------------- |
-| `custom-aces` | ACEScg → sRGB 3D LUT with Oklab hue protection (GPU) |
-| `narkowicz`   | Per-channel Narkowicz ACES fit, gamma-decoded (CPU)  |
-| `khronos`     | Khronos PBR neutral curve, leaves SDR unchanged      |
-| `hill`        | Stephen Hill linear-denominator ACES approximation   |
-| `none`        | Bypass tonemap, clip HDR to [0, 1]                   |
-| `magenta`     | Debug mode: visualise HDR overshoot as magenta       |
+| Tonemapper  | Description                                          |
+| :---------- | :--------------------------------------------------- |
+| `custom`    | ACEScg → sRGB 3D LUT with Oklab hue protection (GPU) |
+| `narkowicz` | Per-channel Narkowicz ACES fit, gamma-decoded (CPU)  |
+| `khronos`   | Khronos PBR neutral curve, leaves SDR unchanged      |
+| `hill`      | Stephen Hill linear-denominator ACES approximation   |
+| `none`      | Bypass tonemap, clip HDR to [0, 1]                   |
+| `magenta`   | Debug mode: visualise HDR overshoot as magenta       |
 
 All renders: bunny scene, 16 samples, 1024×1024, denoise ON.
 

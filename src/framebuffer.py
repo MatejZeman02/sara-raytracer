@@ -44,12 +44,14 @@ def create_gamma_lut():
 @njit(fastmath=True)
 def narkowicz_tonemap(x):
     """Krzysztof Narkowicz ACES fit tonemapper, returning linear SDR.
+    https://knarkowicz.wordpress.com/2016/01/06/aces-filmic-tone-mapping-curve/
 
     0.6 pre-scale aligns the simplified curve with the Academy RRT baseline.
     ** 2.2 decode linearizes the output so the gamma lut can apply the final
     sRGB gamma curve without double-encoding.
     negative values (from out-of-gamut CSC) are clamped to zero.
     """
+
     # clamp negative values (from out-of-gamut ACEScg CSC) to zero
     if x < ZERO:
         x = ZERO
@@ -163,17 +165,9 @@ def write_hdr_to_fb(cr, cg, cb, fb_hdr, x, y):
 
 
 @njit(fastmath=True)
-def linear_to_srgb(c):
-    if c <= float32(0.0031308):
-        return float32(12.92) * c
-    return float32(1.055) * math.pow(c, ONE / float32(2.4)) - float32(0.055)
-
-
-@njit(fastmath=True)
 def magenta_debug_tonemap(r, g, b):
     """debug mode: visualize hdr values exceeding display gamut as magenta."""
     # check if any channel exceeds display gamut
-    # FIXME: doesn't work with AP1 / ACEScg primaries as working space?
     peak = max(r, max(g, b))
     if peak > ONE:
         # use the maximum channel as the luminance proxy

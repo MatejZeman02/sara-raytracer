@@ -8,7 +8,7 @@ from numpy import float32, uint8, random
 DET_EPSILON = float32(1e-9)
 # used for t-distance checks and shadow ray origin offsets (scene-scale tolerance)
 RAY_EPSILON = float32(1e-5)
-DIST_TO_LIGHT_MULT = float32(1e-4)  # t max safeguard for shadow rays
+DIST_TO_LIGHT_MULT = float32(1e-3)  # t max safeguard for shadow rays
 
 BARYCENTRIC_EPSILON = float32(1e-7)  # acounts with float32 precision error
 DENOMINATOR_EPSILON = float32(1e-10)  # division by zero and its check statements
@@ -56,7 +56,7 @@ PI = float32(math.pi)
 UINT8_MAX_F = float32(255.0)
 UINT8_MAX_I = uint8(255)
 
-MISS_GRAY_F = float32(0.0)  # background color in linear Rec.709
+MISS_GRAY_F = float32(0.0)  # background color (in linear space)
 MISS_GRAY = MISS_GRAY_F / UINT8_MAX_F
 MISS_COLOR_F = (MISS_GRAY, MISS_GRAY, MISS_GRAY)
 
