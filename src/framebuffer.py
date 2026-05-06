@@ -113,6 +113,10 @@ else:
 @khronos_tonemap
 def khronos_pbr_neutral_tonemapper(r, g, b):
     """Leaves values below 0.8 mostly unchanged"""
+    # avoid negative values from out-of-gamut CSC by clamping to zero
+    r = max(float32(0.0), r)
+    g = max(float32(0.0), g)
+    b = max(float32(0.0), b)
     # constants defined by the khronos spec
     start_compression = float32(0.8) - float32(0.04)
     desaturation = float32(0.15)
