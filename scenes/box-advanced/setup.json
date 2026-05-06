@@ -1,6 +1,7 @@
 {
     "obj_file": "box-advanced.obj",
     "material_color_space": "rec709",
+    "base_exposure": 13.0,
     "camera": {
         "pos": [
             2.763933,

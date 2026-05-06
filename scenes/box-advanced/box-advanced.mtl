@@ -7,32 +7,61 @@ Ni 1.50
 d 1.0
 illum 3
 
-newmtl Matryoshka_doll
+newmtl ball_glass
+Kd 0.5 0.5 0.5
+Ks 0.0 0.0 0.0
+Tf 1.00 1.00 1.00
+Ns 0
+Ni 1.5
+illum 7
+
+newmtl tall_box
+Ns 100.0
+Kd 0.7250 0.710 0.680
+Ks 0.025 0.025 0.025
+Ke 0.0 0.0 0.0
+Ni 1.5
+d 1.0
+illum 3
+
+
+newmtl light
 Ns 0.0
 Kd 1.0 1.0 1.0
 Ks 0.0 0.0 0.0
-Ke 0.0 0.0 0.0
-Tf 1.0 1.0 1.0
-Ni 2.4
-d 1.000000
+Ke 3.0 3.0 3.0
+Ni 1.0
+d 1.0
 illum 3
+
+
+
 
 newmtl back_wall
 Ns 0.0
-Kd 0.763675 0.763675 0.763675
+Kd 0.8 0.8 0.8
 Ks 0.0 0.0 0.0
+Ke 0.0 0.0 0.0
+Ni 1.0
+d 1.0
+illum 1
+map_Kd brick_diffuse.png
+
+newmtl left_wall
+Ns 100.0
+Kd 1.0 0.0 0.0
+Ks 0.6 0.6 0.6
 Ke 0.0 0.0 0.0
 Ni 1.50
 d 1.0
 illum 3
-map_Kd brick_diffuse.png
 
-newmtl ceiling
-Ns 10.0
-Kd 0.742715 0.727404 0.696713
-Ks 0.0 0.0 0.0
+newmtl right_wall
+Ns 100.0
+Kd 0.0 1.0 0.0
+Ks 0.5 0.5 0.5
 Ke 0.0 0.0 0.0
-Ni 1.5
+Ni 1.50
 d 1.0
 illum 3
 
@@ -45,37 +74,10 @@ Ni 1.50
 d 1.0
 illum 3
 
-newmtl left_wall
-Ns 100.0
-Kd 1.0 0.0 0.0
-Ks 0.5 0.5 0.5
-Ke 0.0 0.0 0.0
-Ni 1.50
-d 1.0
-illum 3
-
-newmtl light
-Ns 0.0
-Kd 1.0 1.0 1.0
+newmtl ceiling
+Ns 10.0
+Kd 0.742715 0.727404 0.696713
 Ks 0.0 0.0 0.0
-Ke 17.0 12.0 4.0
-Ni 1.0
-d 1.0
-illum 3
-
-newmtl right_wall
-Ns 100.0
-Kd 0.0 1.0 0.0
-Ks 0.75 0.75 0.75
-Ke 0.0 0.0 0.0
-Ni 1.50
-d 1.0
-illum 3
-
-newmtl tall_box
-Ns 100.0
-Kd 0.7250 0.710 0.680
-Ks 0.025 0.025 0.025
 Ke 0.0 0.0 0.0
 Ni 1.5
 d 1.0

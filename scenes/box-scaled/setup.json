@@ -1,6 +1,7 @@
 {
     "obj_file": "box-scaled.obj",
     "material_color_space": "rec709",
+    "base_exposure": 2,
     "camera": {
         "pos": [
             2.78,

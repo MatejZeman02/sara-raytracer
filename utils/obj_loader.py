@@ -89,9 +89,13 @@ _ACESCG_MAT_T = np.array(
 )
 
 
-def _build_texture_data(diffuse_texnames, base_dir):
-    # map material -> texture id, and build a padded texture atlas for device kernels
-    # Textures are loaded as sRGB from files and converted to acescg working space.
+def _build_texture_data(diffuse_texnames, base_dir, color_space="acescg"):
+    """Build texture atlas and convert textures to ACEScg working space.
+
+    Textures are loaded from files as sRGB-encoded images. All color spaces
+    use the same sRGB → linear → ACEScg pipeline since the matrix converts
+    linear RGB (whether in rec709 or acescg space) to ACEScg working space.
+    """
     num_materials = len(diffuse_texnames)
     mat_diffuse_tex_ids = np.full(num_materials, NO_TEXTURE, dtype=np.int32)
 
@@ -115,11 +119,13 @@ def _build_texture_data(diffuse_texnames, base_dir):
             tex_img = Image.open(tex_path).convert("RGB")
             tex_arr = np.asarray(tex_img, dtype=np.float32) / 255.0
 
-            # convert from MTL sRGB → linear sRGB → acescg (ap1 d60)
+            # sRGB file → linear → ACEScg
+            # Both rec709 and acescg textures use the same matrix since
+            # they are both linear RGB values being converted to ACEScg.
             tex_arr_lin = _srgb_to_linear(tex_arr)
-            tex_arr = np.tensordot(tex_arr_lin, _ACESCG_MAT_T, axes=([2], [1])).reshape(
-                tex_arr_lin.shape
-            )
+            tex_arr = np.tensordot(
+                tex_arr_lin, _ACESCG_MAT_T.T, axes=([2], [1])
+            ).reshape(tex_arr_lin.shape)
 
             texture_images.append(tex_arr)
             texture_heights.append(tex_arr.shape[0])
@@ -154,27 +160,30 @@ def _srgb_to_linear(rgb):
     return np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
 
 
-def _linear_srgb_to_acescg(rgb):
-    # Matrix from linear sRGB (Rec.709 D65) to ACEScg (AP1 D60).
-    mat = np.array(
-        [
-            [0.613097, 0.339523, 0.047379],
-            [0.070194, 0.916355, 0.013451],
-            [0.020615, 0.109569, 0.869816],
-        ],
-        dtype=np.float32,
-    )
-    return rgb @ mat.T
+def _convert_material_colors_to_acescg(materials, color_space="acescg"):
+    """Convert material RGB values into ACEScg working space.
 
+    MTL color values (Kd, Ks, Ke, Tf) are linear colors in the declared
+    material_color_space. For acescg scenes, the values are already
+    in ACEScg and pass through unchanged. For rec709/srgb scenes, a
+    matrix conversion from the source color space to ACEScg is applied.
 
-def _convert_material_colors_to_acescg(materials):
+    Args:
+        materials: array shaped (N, 14) — RGB channels at indices 0, 3, 6, 9
+        color_space: declared material color space from setup.json
+    """
     if materials.size == 0:
         return materials
 
     def convert_slice(start_idx):
         rgb = materials[:, start_idx : start_idx + 3]
-        rgb_lin = _srgb_to_linear(rgb)
-        materials[:, start_idx : start_idx + 3] = _linear_srgb_to_acescg(rgb_lin)
+        if color_space == "rec709":
+            # rec709 materials are linear in rec709 (D65) — apply the
+            # sRGB-to-ACEScg matrix (same primaries, just different working
+            # space). acescg materials are already in ACEScg: pass through.
+            rgb = np.dot(rgb, _ACESCG_MAT_T).reshape(rgb.shape)
+
+        materials[:, start_idx : start_idx + 3] = rgb
 
     convert_slice(MAT_DIFFUSE_R)
     convert_slice(MAT_SPECULAR_R)
@@ -183,28 +192,37 @@ def _convert_material_colors_to_acescg(materials):
     return materials
 
 
-def _apply_material_color_space(materials):
-    """Convert material colors from MTL sRGB to ACEScg working space.
+def _apply_material_color_space(materials, color_space="acescg"):
+    """Convert material colors into ACEScg working space.
 
     all materials are converted to acescg (ap1 d60) at load time.
-    textures are converted from sRGB → linear sRGB → acescg.
+    textures use the same color space as materials.
 
     Args:
         materials: array shaped (N, 14) — RGB channels at indices 0, 3, 6, 9
+        color_space: declared material color space from setup.json
     """
-    return _convert_material_colors_to_acescg(materials)
+    return _convert_material_colors_to_acescg(materials, color_space)
 
 
 def load_light_cam_data(json_path):
     with open(json_path, "r") as f:
         data = json.load(f)
-    return data["light"], data["camera"], data["obj_file"], "acescg"
+    return (
+        data["light"],
+        data["camera"],
+        data["obj_file"],
+        data.get("material_color_space", "rec.709"),
+        float(data.get("base_exposure", 1.0)),
+    )
 
 
 def load_scene(txt_path):
     # loads the scene using custom c++ binding
     base_dir = os.path.dirname(txt_path)
-    light_data, cam_data, obj_file, material_color_space = load_light_cam_data(txt_path)
+    light_data, cam_data, obj_file, material_color_space, base_exposure = (
+        load_light_cam_data(txt_path)
+    )
     obj_path = os.path.join(base_dir, obj_file)
 
     assert os.path.exists(obj_path)
@@ -233,9 +251,9 @@ def load_scene(txt_path):
 
     mat_indices = np.array(raw_mat_idx, dtype=np.int32)
     materials = np.array(raw_mats, dtype=np.float32).reshape(-1, 14)
-    materials = _apply_material_color_space(materials)
+    materials = _apply_material_color_space(materials, material_color_space)
     mat_diffuse_tex_ids, texture_atlas, tex_widths, tex_heights = _build_texture_data(
-        raw_diffuse_texnames, base_dir
+        raw_diffuse_texnames, base_dir, material_color_space
     )
 
     num_tris = len(mat_indices)
@@ -258,4 +276,5 @@ def load_scene(txt_path):
         tex_heights,
         light_data,
         cam_data,
+        base_exposure,
     )

@@ -108,6 +108,7 @@ def main():
         cam_data,
         bvh_nodes,
         _,
+        base_exposure,
         bvh_build_time,
     ) = load_or_build_scene(json_file, cache_file, t)
     if bvh_build_time > 0:
@@ -187,7 +188,10 @@ def main():
         return
 
     # Calculate camera exposure multiplier once on CPU
-    exposure_mul = float(np.float32(2.0**settings.EXPOSURE_COMPENSATION))
+    # base_exposure from setup.json scales scene light level
+    exposure_mul = (
+        float(np.float32(2.0**settings.EXPOSURE_COMPENSATION)) * base_exposure
+    )
 
     # Warmup postprocess kernels
     gamma_lut = create_gamma_lut()
