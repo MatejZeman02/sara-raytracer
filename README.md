@@ -1,6 +1,6 @@
-# CTU FIT NI-PG1 Matej Zeman (zemanm40) 2026
+# CTU FIT NI-PG1 Matěj Zeman (zemanm40) 2026
 
-My Sara raytracer in numba-cuda. Semestral work in PG1 taught by Ing. Radek Richtr Ph.D on CTU FIT in Prague.
+My Sara ray tracer in numba-cuda. Semestral work in NI-PG1 — Počítačová Grafika 1 taught by Ing. Radek Richtr Ph.D on CTU FIT in Prague.
 
 ## Structure/Installation
 
@@ -96,6 +96,7 @@ Resolution is `1024x1024`, samples are `16`, and max bounces are `16`.
 | box-spheres | sah-binning  |           3.3900 |            454.18 |            52.85 |               13.34 |
 | box-spheres | median-split |           3.3800 |           1244.35 |           251.61 |               13.35 |
 | box-spheres | no-binning   |           3.8400 |            342.40 |            51.83 |               13.35 |
+| dragon      | sah-binning  |           6.6900 |            52.39 |             7.97 |               10.68 |
 
 ### Construction Metrics
 
@@ -107,6 +108,7 @@ Resolution is `1024x1024`, samples are `16`, and max bounces are `16`.
 | box-spheres | sah-binning  |    3.3900 |  2,183 |    1,091 |  1,092 | 0 / 11 / 5.7         | 1 / 4 / 2.0          |
 | box-spheres | median-split |    3.3800 |  2,357 |    1,178 |  1,179 | 0 / 11 / 5.3         | 1 / 20 / 1.9         |
 | box-spheres | no-binning   |    3.8400 |  2,131 |    1,065 |  1,066 | 0 / 11 / 5.7         | 1 / 4 / 2.0          |
+| dragon      | sah-binning  |    6.6900 | 932,985 | 466,492 | 466,493 | 0 / 32 / 8.1       | 1 / 9 / 1.9          |
 
 ### Traversal Metrics
 
@@ -118,6 +120,8 @@ Resolution is `1024x1024`, samples are `16`, and max bounces are `16`.
 | box-spheres | sah-binning  |  89.5 |     454.18 |     52.85 |        13.34 |          15.26 |        4.75 | — |
 | box-spheres | median-split |  89.5 |    1244.35 |    251.61 |        13.35 |          44.90 |        6.53 | — |
 | box-spheres | no-binning   |  89.5 |     342.40 |     51.83 |        13.35 |          11.73 |        3.62 | — |
+
+> **Note:** The dragon scene (871k triangles) with exhaustive SAH (no-binning) is estimated to take ~90 min for BVH construction, based on bunny's 455 s for 70k triangles (dragon has ~12x more triangles, so ~5460 s estimated). The sah-binning variant completes in 6.69 s.
 
 Size of the scene BVH (`.npz`):
 - bunny 9.4 MB
@@ -482,9 +486,11 @@ Shrnutí převodu konceptů z CUDA C++ (`nvcc`) do Numby:
 
 ### GPU vs CPU
 
+The core rendering pipeline runs entirely on GPU. CPU tasks are optional support steps:
+
 | What                                     | Where          | How                                                      |
 | ---------------------------------------- | -------------- | -------------------------------------------------------- |
-| Scene loading / parsing                  | CPU            | TinyObjLoader C++ via pybind11                           |
+| Scene loading / parsing                  | CPU (optional) | TinyObjLoader C++ via pybind11                           |
 | BVH construction                         | CPU            | SAH binning in `bvh.py`                                  |
 | Ray tracing (primary, secondary, shadow) | GPU            | Numba kernels in `render_kernel.py`                      |
 | BVH traversal                            | GPU            | `traversal.py` — per-thread stack via `cuda.local.array` |
@@ -492,6 +498,8 @@ Shrnutí převodu konceptů z CUDA C++ (`nvcc`) do Numby:
 | Accumulation + reduction                 | GPU            | Adds into HDR framebuffer                                |
 | Denoising                                | CPU (optional) | Intel OIDN library in `denoiser.py`                      |
 | SRGB + save                              | CPU            | `framebuffer.py`                                         |
+
+All ray tracing is executed on GPU with the entire kernel launched from CPU host code. CPU tasks (scene loading, BVH build, post-processing) are prepared on the host but do not participate in the core rendering loop.
 
 ### Numba CUDA Kernels
 
