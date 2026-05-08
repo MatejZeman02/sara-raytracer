@@ -2,6 +2,8 @@
 
 My Sara ray tracer in numba-cuda. Semestral work in NI-PG1 — Počítačová Grafika 1 taught by Ing. Radek Richtr Ph.D on CTU FIT in Prague.
 
+[report.pdf](report.pdf)
+
 ## Structure/Installation
 
 Separate homeworks are in the branches (hw0x). The main source code is inside `src/` folder. It is using my `utils/` module.
