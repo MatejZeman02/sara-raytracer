@@ -5,6 +5,10 @@
 !.gitattributes
 !.gitmodules
 
+# test file:
+src/output/bvh_stats.txt
+# output file:
+src/output/output.jpg
 
 # ignore debuging
 .github/
