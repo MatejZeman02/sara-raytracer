@@ -10,6 +10,11 @@ LUT_SIZE = 32
 # -10 to +10 EV covers everything from pitch black to white sun.
 MIN_EV = -10.0
 MAX_EV = 10.0
+# Crosstalk / bleed amounts (fractional, 0.0 - 1.0). These are easy to tune
+# and can be exposed to a UI. Defaults correspond to ~15% total bleed per channel.
+BLEED_R = 0.15
+BLEED_G = 0.15
+BLEED_B = 0.15
 
 
 def build_custom_aces_lut():
@@ -33,11 +38,29 @@ def build_custom_aces_lut():
         chromatic_adaptation_transform="CAT02",
     )
 
-    # asymmetrical crosstalk
-    # simulates physical film emulsion where colors bleed unevenly
-    # red bleeds into green, green into blue, blue into red
+    # asymmetrical crosstalk (configurable via BLEED_* constants)
+    # Each channel keeps (1 - bleed) of itself and distributes the bleed
+    # asymmetrically to the other two channels. Distribution ratios mirror
+    # the interactive presentation: ~2/3 to the first target, ~1/3 to the
+    # second target (per-channel rotation: R->G,B ; G->B,R ; B->R,G).
+    r = BLEED_R
+    g = BLEED_G
+    b = BLEED_B
+
+    rBleedG = r * 0.667
+    rBleedB = r * 0.333
+    gBleedB = g * 0.667
+    gBleedR = g * 0.333
+    bBleedR = b * 0.667
+    bBleedG = b * 0.333
+
     crosstalk_matrix = np.array(
-        [[0.85, 0.10, 0.05], [0.05, 0.85, 0.10], [0.10, 0.05, 0.85]], dtype=np.float32
+        [
+            [1.0 - r, rBleedG, rBleedB],
+            [gBleedR, 1.0 - g, gBleedB],
+            [bBleedR, bBleedG, 1.0 - b],
+        ],
+        dtype=np.float32,
     )
 
     linear_srgb = np.dot(linear_srgb, crosstalk_matrix.T)

@@ -199,6 +199,51 @@ All benchmarks on NVIDIA A100-PCIE-40GB, 1024×1024, 16 samples, 16 bounces. Ren
 
 > BVH build times are CPU-only. Without BVH, per-ray intersection is O(n) — the bunny scene without BVH averages 279,967 triangle tests per hit pixel vs 77 with BVH.
 
+
+## BVH Performance (GPU-side Metrics)
+> Device: NVIDIA GeForce RTX 3090 / 16 CPU cores
+Resolution is `1024x1024`, samples are `16`, and max bounces are `16`.
+
+| Scene       | Config       | Construction (s) | node_tests (mean) | tri_tests (mean) | shadow_tests (mean) |
+| :---------- | :----------- | ---------------: | ----------------: | ---------------: | ------------------: |
+| bunny       | sah-binning  |           4.1600 |            892.42 |            77.26 |               19.82 |
+| bunny       | median-split |           5.3100 |           2903.43 |           413.77 |               19.83 |
+| bunny       | no-binning   |         508.9200 |            775.11 |            79.97 |               19.82 |
+| box-spheres | sah-binning  |           3.3900 |            454.18 |            52.85 |               13.34 |
+| box-spheres | median-split |           3.3800 |           1244.35 |           251.61 |               13.35 |
+| box-spheres | no-binning   |           3.8400 |            342.40 |            51.83 |               13.35 |
+| dragon      | sah-binning  |           6.6900 |             52.39 |             7.97 |               10.68 |
+
+### Construction Metrics
+| Scene       | Config       | Const (s) |   Nodes | Internal |  Leaves | Leaf Depth (min/max) | Prims/leaf (min/max) |
+| :---------- | :----------- | --------: | ------: | -------: | ------: | :------------------- | :------------------- |
+| bunny       | sah-binning  |    4.1600 |  76,907 |   38,453 |  38,454 | 0 / 17 / 8.3         | 1 / 5 / 1.8          |
+| bunny       | median-split |    5.3100 |  73,431 |   36,715 |  36,716 | 0 / 16 / 7.8         | 1 / 5 / 1.9          |
+| bunny       | no-binning   |  508.9200 |  75,055 |   37,527 |  37,528 | 0 / 16 / 8.7         | 1 / 5 / 1.9          |
+| box-spheres | sah-binning  |    3.3900 |   2,183 |    1,091 |   1,092 | 0 / 11 / 5.7         | 1 / 4 / 2.0          |
+| box-spheres | median-split |    3.3800 |   2,357 |    1,178 |   1,179 | 0 / 11 / 5.3         | 1 / 20 / 1.9         |
+| box-spheres | no-binning   |    3.8400 |   2,131 |    1,065 |   1,066 | 0 / 11 / 5.7         | 1 / 4 / 2.0          |
+| dragon      | sah-binning  |    6.6900 | 932,985 |  466,492 | 466,493 | 0 / 32 / 8.1         | 1 / 9 / 1.9          |
+
+### Traversal Metrics
+| Scene       | Config       | Hit % | node_tests | tri_tests | shadow_tests | traverse_tests | query_depth |
+| :---------- | :----------- | ----: | ---------: | --------: | -----------: | -------------: | ----------: |
+| bunny       | sah-binning  |  89.5 |     892.42 |     77.26 |        19.82 |          29.78 |        4.86 | — |
+| bunny       | median-split |  89.5 |    2903.43 |    413.77 |        19.83 |          97.69 |       12.66 | — |
+| bunny       | no-binning   |  89.5 |     775.11 |     79.97 |        19.82 |          25.70 |        4.14 | — |
+| box-spheres | sah-binning  |  89.5 |     454.18 |     52.85 |        13.34 |          15.26 |        4.75 | — |
+| box-spheres | median-split |  89.5 |    1244.35 |    251.61 |        13.35 |          44.90 |        6.53 | — |
+| box-spheres | no-binning   |  89.5 |     342.40 |     51.83 |        13.35 |          11.73 |        3.62 | — |
+
+> **Note:** The dragon scene (871k triangles) with exhaustive SAH (no-binning) is estimated to take ~90 min for BVH construction, based on bunny's 455 s for 70k triangles (dragon has ~12x more triangles, so ~5460 s estimated). The sah-binning variant completes in 6.69 s.
+
+Size of the scene BVH (`.npz`):
+- bunny 9.4 MB
+- dragon: 120 MB
+- box-spheres: 0.3 MB 
+
+***
+
 ## Python Debugging in VS Code
 
 Use `.vscode/launch.json`:

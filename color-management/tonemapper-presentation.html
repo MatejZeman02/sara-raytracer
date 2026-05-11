@@ -1,0 +1,1857 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom ACEScg Tonemapper — Pipeline Walkthrough</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Playfair+Display:wght@400;500;600&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap"
+        rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --bg2: #f7f8fa;
+            --bg3: #ffffff;
+            --bg4: #f1f3f5;
+            --border: rgba(0, 0, 0, 0.06);
+            --border2: rgba(0, 0, 0, 0.10);
+            --text: #0f1724;
+            --text2: #4b5563;
+            --text3: #6b7280;
+            --amber: #d4963a;
+            --amber-dim: rgba(212, 150, 58, 0.08);
+            --teal: #0f766e;
+            --teal-dim: rgba(58, 157, 138, 0.10);
+            --coral: #c85a3e;
+            --coral-dim: rgba(200, 90, 62, 0.10);
+            --blue: #2563eb;
+            --blue-dim: rgba(74, 127, 193, 0.10);
+            --purple: #6b21a8;
+            --purple-dim: rgba(123, 107, 191, 0.10);
+            --green: #15803d;
+            --green-dim: rgba(90, 158, 90, 0.10);
+            --radius: 10px;
+            --radius-sm: 6px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 16px;
+            line-height: 1.7;
+            font-weight: 300;
+        }
+
+        .cover::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 60% 40% at 70% 30%, rgba(212, 150, 58, 0.08) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 50% at 20% 70%, rgba(74, 127, 193, 0.07) 0%, transparent 55%);
+            pointer-events: none;
+        }
+
+        .cover-label {
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.18em;
+            color: var(--amber);
+            text-transform: uppercase;
+            margin-bottom: 32px;
+        }
+
+        .cover h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(40px, 6vw, 72px);
+            font-weight: 500;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+            max-width: 700px;
+            margin-bottom: 24px;
+        }
+
+        .cover h1 em {
+            font-style: italic;
+            color: var(--amber);
+        }
+
+        .cover-sub {
+            font-size: 17px;
+            color: var(--text2);
+            max-width: 520px;
+            line-height: 1.75;
+            margin-bottom: 60px;
+        }
+
+        .pipeline-strip {
+            display: flex;
+            align-items: center;
+            gap: 0;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .ps-node {
+            font-family: 'DM Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: 0.5px solid var(--border2);
+            color: var(--text2);
+            background: var(--bg3);
+        }
+
+        .ps-node.active {
+            border-color: var(--amber);
+            color: var(--amber);
+            background: var(--amber-dim);
+        }
+
+        .ps-arrow {
+            color: var(--text3);
+            font-size: 14px;
+            margin: 0 2px;
+        }
+
+        /* ── SECTION ──────────────────────────────────── */
+        .section {
+            padding: 80px 60px;
+            border-bottom: 0.5px solid var(--border);
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-num {
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.2em;
+            color: var(--text3);
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        .section h2 {
+            font-family: 'Playfair Display', serif;
+            font-size: clamp(28px, 3vw, 40px);
+            font-weight: 500;
+            line-height: 1.2;
+            letter-spacing: -0.01em;
+            margin-bottom: 20px;
+        }
+
+        .accent-amber {
+            color: var(--amber);
+        }
+
+        .accent-teal {
+            color: var(--teal);
+        }
+
+        .accent-coral {
+            color: var(--coral);
+        }
+
+        .accent-blue {
+            color: var(--blue);
+        }
+
+        .accent-purple {
+            color: var(--purple);
+        }
+
+        .accent-green {
+            color: var(--green);
+        }
+
+        .lead {
+            font-size: 17px;
+            color: var(--text2);
+            max-width: 640px;
+            line-height: 1.8;
+            margin-bottom: 48px;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            align-items: start;
+        }
+
+        .three-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 800px) {
+
+            .two-col,
+            .three-col {
+                grid-template-columns: 1fr;
+            }
+
+            .section {
+                padding: 60px 28px;
+            }
+
+            .cover {
+                padding: 60px 28px;
+            }
+        }
+
+        /* ── CARDS ────────────────────────────────────── */
+        .card {
+            background: var(--bg2);
+            border: 0.5px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+        }
+
+        .card-label {
+            font-family: 'DM Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+        }
+
+        .card h3 {
+            font-family: 'Playfair Display', serif;
+            font-size: 20px;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        .card p {
+            font-size: 14px;
+            color: var(--text2);
+            line-height: 1.7;
+        }
+
+        /* ── CODE BLOCK ───────────────────────────────── */
+        .code-block {
+            background: var(--bg3);
+            border: 0.5px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 20px 24px;
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+            line-height: 1.8;
+            color: var(--text2);
+            overflow-x: auto;
+        }
+
+        .code-block .kw {
+            color: var(--amber);
+        }
+
+        .code-block .num {
+            color: var(--teal);
+        }
+
+        .code-block .cm {
+            color: var(--text3);
+            font-style: italic;
+        }
+
+        .code-block .fn {
+            color: var(--blue);
+        }
+
+        /* ── RANGE SLIDER ─────────────────────────────── */
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .slider-row label {
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            color: var(--text2);
+            min-width: 110px;
+        }
+
+        .slider-row input[type=range] {
+            flex: 1;
+            -webkit-appearance: none;
+            height: 2px;
+            background: var(--bg4);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .slider-row input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--amber);
+            cursor: pointer;
+        }
+
+        .slider-row input[type=range]::-moz-range-thumb {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--amber);
+            border: none;
+            cursor: pointer;
+        }
+
+        .slider-val {
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+            color: var(--amber);
+            min-width: 48px;
+            text-align: right;
+        }
+
+        /* ── CANVAS WRAPPER ───────────────────────────── */
+        .chart-wrap {
+            position: relative;
+            width: 100%;
+        }
+
+        /* ── EV GRID VIZ ──────────────────────────────── */
+        .ev-viz {
+            width: 100%;
+            height: 64px;
+            border-radius: var(--radius-sm);
+            border: 0.5px solid var(--border);
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 16px;
+        }
+
+        /* ── PIPELINE DIAGRAM ─────────────────────────── */
+        .pipeline-diagram {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .pd-step {
+            display: flex;
+            align-items: stretch;
+            gap: 0;
+        }
+
+        .pd-num {
+            font-family: 'DM Mono', monospace;
+            font-size: 10px;
+            color: var(--text3);
+            width: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .pd-bar {
+            flex: 1;
+            border-radius: 4px;
+            padding: 12px 16px;
+            border: 0.5px solid transparent;
+            transition: border-color 0.2s;
+            cursor: default;
+        }
+
+        .pd-bar:hover {
+            border-color: var(--border2);
+        }
+
+        .pd-bar-title {
+            font-weight: 500;
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+
+        .pd-bar-sub {
+            font-size: 12px;
+            color: var(--text3);
+            font-family: 'DM Mono', monospace;
+        }
+
+        .pd-connector {
+            width: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text3);
+            font-size: 12px;
+            padding: 2px 0;
+        }
+
+        /* ── MATRIX VIZ ───────────────────────────────── */
+        .matrix-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 3px;
+            width: 180px;
+        }
+
+        .matrix-cell {
+            aspect-ratio: 1;
+            border-radius: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            font-weight: 400;
+        }
+
+        /* ── GAMUT SPHERE ─────────────────────────────── */
+        #gamut-canvas {
+            border-radius: var(--radius-sm);
+            background: var(--bg3);
+        }
+
+        /* ── TONEMAP COMPARE ──────────────────────────── */
+        .compare-strip {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2px;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            height: 180px;
+        }
+
+        .cs-panel {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+
+        .cs-label {
+            font-family: 'DM Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .cs-desc {
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        /* ── DIVIDER ──────────────────────────────────── */
+        .divider {
+            height: 0.5px;
+            background: var(--border);
+            margin: 40px 0;
+        }
+
+        /* ── HIGHLIGHT BOX ────────────────────────────── */
+        .highlight-box {
+            border-left: 2px solid var(--amber);
+            padding: 16px 20px;
+            background: var(--amber-dim);
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+            font-size: 14px;
+            color: var(--text2);
+            margin: 24px 0;
+        }
+
+        .highlight-box.teal {
+            border-color: var(--teal);
+            background: var(--teal-dim);
+        }
+
+        .highlight-box.coral {
+            border-color: var(--coral);
+            background: var(--coral-dim);
+        }
+
+        .highlight-box.blue {
+            border-color: var(--blue);
+            background: var(--blue-dim);
+        }
+
+        /* ── FOOTER ───────────────────────────────────── */
+        .footer {
+            padding: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 0.5px solid var(--border);
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            color: var(--text3);
+            letter-spacing: 0.1em;
+        }
+
+        /* ── TOC NAV ──────────────────────────────────── */
+        nav {
+            position: fixed;
+            top: 50%;
+            right: 28px;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        nav a {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--text3);
+            transition: background 0.2s, transform 0.2s;
+            text-decoration: none;
+            display: block;
+        }
+
+        nav a:hover,
+        nav a.active {
+            background: var(--amber);
+            transform: scale(1.5);
+        }
+
+        @media (max-width: 900px) {
+            nav {
+                display: none;
+            }
+        }
+
+        /* ── OKLAB CHROMA VIZ ─────────────────────────── */
+        #oklab-canvas {
+            border-radius: var(--radius-sm);
+        }
+
+        /* ── UCHIMURA CURVE ───────────────────────────── */
+        #ucurve-canvas {
+            border-radius: var(--radius-sm);
+            background: var(--bg3);
+        }
+
+        /* ── DESATURATION VIZ ─────────────────────────── */
+        .desat-strip {
+            height: 48px;
+            border-radius: var(--radius-sm);
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+
+        /* ── TAG ──────────────────────────────────────── */
+        .tag {
+            display: inline-block;
+            font-family: 'DM Mono', monospace;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            padding: 3px 9px;
+            border-radius: 3px;
+            margin-right: 6px;
+            margin-bottom: 6px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav id="toc-nav">
+        <a href="#cover" title="Cover"></a>
+        <a href="#s1" title="Overview"></a>
+        <a href="#s2" title="Input Grid"></a>
+        <a href="#s3" title="Colorspace"></a>
+        <a href="#s4" title="Crosstalk"></a>
+        <a href="#s5" title="Gamut Compression"></a>
+        <a href="#s6" title="Highlight Desaturation"></a>
+        <a href="#s7" title="Uchimura Tonemapping"></a>
+        <a href="#s8" title="Output"></a>
+    </nav>
+
+    <!-- ══════════════════════════════════════════════════════════
+     COVER
+══════════════════════════════════════════════════════════ -->
+    <section class="cover" id="cover">
+        <p class="cover-label">Custom Color Pipeline · ACEScg → sRGB</p>
+        <h1>A <em>tonemapper</em><br>from scratch</h1>
+        <p class="cover-sub">
+            This is a walkthrough of a custom 3D LUT pipeline — how it takes raw HDR scene light, compresses it into
+            something a display can show, and does it in a way that feels more like film than math.
+        </p>
+        <div class="pipeline-strip">
+            <div class="ps-node active">Input ACEScg</div>
+            <span class="ps-arrow">›</span>
+            <div class="ps-node">Colorspace xform</div>
+            <span class="ps-arrow">›</span>
+            <div class="ps-node">Crosstalk</div>
+            <span class="ps-arrow">›</span>
+            <div class="ps-node">Gamut compress</div>
+            <span class="ps-arrow">›</span>
+            <div class="ps-node">Highlight desat</div>
+            <span class="ps-arrow">›</span>
+            <div class="ps-node">Uchimura TM</div>
+            <span class="ps-arrow">›</span>
+            <div class="ps-node">γ encode</div>
+            <span class="ps-arrow">›</span>
+            <div class="ps-node active">sRGB LUT</div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S1 · OVERVIEW
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s1">
+        <p class="section-num">00 · Overview</p>
+        <h2>Why build a <span class="accent-amber">custom</span> LUT?</h2>
+        <p class="lead">
+            Most display pipelines use off-the-shelf ACES or a simple Reinhard curve. This one is hand-tuned: it borrows
+            ideas from ACES 2.0, adds a film-like emulsion simulation, and does gamut compression in a perceptually
+            uniform space. The result is baked into a 3D lookup table so it runs at zero cost at render time.
+        </p>
+
+        <div class="pipeline-diagram">
+            <div class="pd-step">
+                <div class="pd-num">1</div>
+                <div class="pd-bar" style="background: rgba(212,150,58,0.08); border-color: rgba(212,150,58,0.2);">
+                    <div class="pd-bar-title accent-amber">Input Grid — ACEScg, −10 to +10 EV</div>
+                    <div class="pd-bar-sub">32³ lattice · linear HDR scene values</div>
+                </div>
+            </div>
+            <div class="pd-connector">│</div>
+            <div class="pd-step">
+                <div class="pd-num">2</div>
+                <div class="pd-bar" style="background: rgba(74,127,193,0.08); border-color: rgba(74,127,193,0.2);">
+                    <div class="pd-bar-title accent-blue">Colorspace — ACEScg → sRGB</div>
+                    <div class="pd-bar-sub">3×3 matrix · CAT02 chromatic adaptation</div>
+                </div>
+            </div>
+            <div class="pd-connector">│</div>
+            <div class="pd-step">
+                <div class="pd-num">3</div>
+                <div class="pd-bar" style="background: rgba(123,107,191,0.08); border-color: rgba(123,107,191,0.2);">
+                    <div class="pd-bar-title accent-purple">Crosstalk — Asymmetric Emulsion Bleed</div>
+                    <div class="pd-bar-sub">R→G, G→B, B→R · 15% inter-channel bleed</div>
+                </div>
+            </div>
+            <div class="pd-connector">│</div>
+            <div class="pd-step">
+                <div class="pd-num">4</div>
+                <div class="pd-bar" style="background: rgba(58,157,138,0.08); border-color: rgba(58,157,138,0.2);">
+                    <div class="pd-bar-title accent-teal">Gamut Compression — Oklab Binary Search</div>
+                    <div class="pd-bar-sub">perceptual chroma reduction · 15-iteration bisection</div>
+                </div>
+            </div>
+            <div class="pd-connector">│</div>
+            <div class="pd-step">
+                <div class="pd-num">5</div>
+                <div class="pd-bar" style="background: rgba(200,90,62,0.08); border-color: rgba(200,90,62,0.2);">
+                    <div class="pd-bar-title accent-coral">Highlight Desaturation — Oklab Rolloff</div>
+                    <div class="pd-bar-sub">Hermite smoothstep · L 1.5 → 2.0 rolloff range</div>
+                </div>
+            </div>
+            <div class="pd-connector">│</div>
+            <div class="pd-step">
+                <div class="pd-num">6</div>
+                <div class="pd-bar" style="background: rgba(90,158,90,0.08); border-color: rgba(90,158,90,0.2);">
+                    <div class="pd-bar-title accent-green">Uchimura Tonemapping — Luminance-Preserving</div>
+                    <div class="pd-bar-sub">piecewise toe/linear/shoulder · hue integrity via norm</div>
+                </div>
+            </div>
+            <div class="pd-connector">│</div>
+            <div class="pd-step">
+                <div class="pd-num">7</div>
+                <div class="pd-bar" style="background: rgba(212,150,58,0.06); border-color: rgba(212,150,58,0.15);">
+                    <div class="pd-bar-title accent-amber">Output — γ 2.2 Encode → float32 .npy</div>
+                    <div class="pd-bar-sub">32³ × 3 channels · ready for Numba/GPU sampling</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S2 · INPUT GRID
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s2">
+        <p class="section-num">01 · Input Grid</p>
+        <h2>20 stops of <span class="accent-amber">HDR scene</span> in a unit cube</h2>
+        <p class="lead">
+            The LUT maps a 3D unit cube [0,1]³ to display-ready colors. But before anything else, we need to decide:
+            what does position 0 mean, and what does position 1 mean, in terms of actual light?
+        </p>
+
+        <div class="two-col">
+            <div>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:24px;">
+                    We use a log scale: position 0 on each axis is −10 EV, position 1 is +10 EV. That's 20 stops —
+                    enough to cover everything from a pitch-black cave to the surface of the sun in direct light.
+                </p>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:24px;">
+                    This is critical. A linear grid would waste most of its resolution on very bright values, where the
+                    human eye can barely tell the difference. A log grid packs resolution where you actually need it: in
+                    the midtones and shadows.
+                </p>
+                <div class="highlight-box">
+                    <strong style="color: var(--amber);">32³ = 32,768 entries</strong> — each holding an RGB triplet.
+                    The full LUT is about 384KB as float32. Coarse enough to compute offline, fine enough that trilinear
+                    interpolation at sample time is seamless.
+                </div>
+
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-label" style="color:var(--text3);">Formula</div>
+                    <div class="code-block" style="margin-top:8px;">
+                        <span class="cm"># grid [0,1] → EV stops → linear</span>
+                        stops = grid_01 * (<span class="num">20.0</span>) + (<span class="num">-10.0</span>)
+                        linear_acescg = <span class="num">2.0</span> ** stops
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <p
+                    style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:12px;">
+                    EV range visualised — log brightness scale</p>
+                <canvas id="ev-canvas" width="480" height="260"
+                    style="width:100%; border-radius:var(--radius-sm); background:var(--bg3);"></canvas>
+                <div style="margin-top:12px;" class="slider-row">
+                    <label>Highlight stop</label>
+                    <input type="range" id="ev-max" min="4" max="15" step="1" value="10">
+                    <span class="slider-val" id="ev-max-val">+10 EV</span>
+                </div>
+                <div class="slider-row">
+                    <label>Shadow stop</label>
+                    <input type="range" id="ev-min" min="-15" max="-4" step="1" value="-10">
+                    <span class="slider-val" id="ev-min-val">−10 EV</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S3 · COLORSPACE
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s3">
+        <p class="section-num">02 · Colorspace Transform</p>
+        <h2><span class="accent-blue">ACEScg</span> to linear sRGB</h2>
+        <p class="lead">
+            ACEScg is the working space used in VFX and rendering. It's bigger than sRGB — it can represent colors that
+            no display can show. The first step is a matrix transform to get into the sRGB primaries, using CAT02
+            chromatic adaptation to handle the different white points.
+        </p>
+
+        <div class="two-col">
+            <div>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    Think of this as rotating the color space. ACEScg has a very wide gamut — it was designed to capture
+                    everything a camera or renderer could produce. sRGB is the gamut of a consumer monitor. The matrix
+                    remaps one set of primaries to the other.
+                </p>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    After this step, many colors will be <em>out of gamut</em> — meaning one or more channels will go
+                    negative. That's not an error, it's expected — those are colors that physically can't be shown on a
+                    display. We'll deal with them in the next step.
+                </p>
+                <div class="highlight-box blue">
+                    CAT02 is the chromatic adaptation transform from CIECAM02. It adapts D60 (ACES white point) to D65
+                    (sRGB white point), so whites look neutral on a standard monitor rather than slightly warm.
+                </div>
+            </div>
+
+            <div>
+                <p
+                    style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:16px;">
+                    Gamut comparison — chromaticity diagram</p>
+                <canvas id="gamut-canvas" width="460" height="320"
+                    style="width:100%; border-radius:var(--radius-sm); background:var(--bg3);"></canvas>
+                <p style="font-size:12px; color:var(--text3); margin-top:8px; font-family:'DM Mono',monospace;">Amber =
+                    ACEScg · Blue = sRGB · The overlap region is "in gamut"</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S4 · CROSSTALK
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s4">
+        <p class="section-num">03 · Asymmetric Crosstalk</p>
+        <h2>Film <span class="accent-purple">emulsion bleed</span></h2>
+        <p class="lead">
+            This is the step that makes the whole thing feel like film rather than a digital grade. Real film emulsions
+            aren't perfectly isolated — the dye layers bleed into each other. This matrix simulates that, deliberately
+            and asymmetrically.
+        </p>
+
+        <div class="two-col">
+            <div>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    The bleed is intentionally one-directional: red bleeds into green, green into blue, and blue into
+                    red. This creates a characteristic "warmth rotation" — a red sunset picks up a slightly golden-green
+                    cast, blues take on a subtle violet note.
+                </p>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    Each channel keeps 85% of itself and donates 5% and 10% to the other two. The asymmetry is what
+                    makes it look analog rather than like a flat de-saturate.
+                </p>
+
+                <div style="display:flex; gap:24px; align-items:flex-start; margin-top:32px;">
+                    <div>
+                        <p
+                            style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:10px;">
+                            Matrix</p>
+                        <div class="matrix-grid" id="matrix-grid"></div>
+                    </div>
+                    <div style="flex:1;">
+                        <p
+                            style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:10px;">
+                            Bleed amount</p>
+                        <div id="bleed-slider-wrap">
+                            <div class="slider-row">
+                                <label>R bleed</label>
+                                <input type="range" id="bleed-r" min="0" max="100" step="1" value="15">
+                                <span class="slider-val" id="bleed-r-val">15%</span>
+                            </div>
+                            <div class="slider-row">
+                                <label>G bleed</label>
+                                <input type="range" id="bleed-g" min="0" max="100" step="1" value="15">
+                                <span class="slider-val" id="bleed-g-val">15%</span>
+                            </div>
+                            <div class="slider-row">
+                                <label>B bleed</label>
+                                <input type="range" id="bleed-b" min="0" max="100" step="1" value="15">
+                                <span class="slider-val" id="bleed-b-val">15%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <p
+                    style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:12px;">
+                    Color bleed preview</p>
+                <canvas id="crosstalk-canvas" width="460" height="360"
+                    style="width:100%; border-radius:var(--radius-sm); background:var(--bg3);"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S5 · GAMUT COMPRESSION
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s5">
+        <p class="section-num">04 · Gamut Compression</p>
+        <h2>Pulling out-of-gamut colors back <span class="accent-teal">in</span></h2>
+        <p class="lead">
+            After the colorspace transform and crosstalk, many colors will have negative RGB values — they're outside
+            what sRGB can represent. We need to compress them back in. The trick is doing this in a perceptually uniform
+            space so the compression looks natural.
+        </p>
+
+        <div class="two-col">
+            <div>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    The approach here is elegant: convert to <strong style="color:var(--teal);">Oklab</strong>, then do
+                    a binary search on the chroma (a and b axes). We're asking: "how much can we scale down the chroma
+                    while keeping lightness exactly the same, until no channel goes negative?"
+                </p>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    Fifteen iterations of bisection gives us about 1/32768th precision — more than enough for float32.
+                    The key insight is we stay in Oklab the whole time, so we're compressing <em>perceptually</em>, not
+                    mathematically. Hue and lightness are preserved; only saturation is reduced.
+                </p>
+                <div class="highlight-box teal">
+                    <strong style="color:var(--teal);">Why Oklab?</strong> Oklab is designed so that equal distances
+                    correspond to equal perceived color differences. Compressing chroma in Oklab produces a much cleaner
+                    result than clipping channels directly — no hue shifts, no weird "neon" artifacts.
+                </div>
+
+                <div class="code-block" style="margin-top:20px;">
+                    <span class="cm"># 15-iteration binary search on chroma scale</span>
+                    <span class="kw">for</span> _ <span class="kw">in</span> range(<span class="num">15</span>):
+                    mid = (low + high) / <span class="num">2.0</span>
+                    oklab_test[..., <span class="num">1:3</span>] *= mid <span class="cm"># scale a,b</span>
+                    rgb_test = <span class="fn">oklab_to_rgb</span>(oklab_test)
+                    high = where(rgb_test < <span class="num">0</span>, mid, high)
+                        low = where(rgb_test >= <span class="num">0</span>, mid, low)
+                </div>
+            </div>
+
+            <div>
+                <p
+                    style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:12px;">
+                    Chroma compression in Oklab a-b plane</p>
+                <canvas id="oklab-canvas" width="460" height="380"
+                    style="width:100%; border-radius:var(--radius-sm); background:var(--bg3);"></canvas>
+                <div style="margin-top:12px;" class="slider-row">
+                    <label>Compression</label>
+                    <input type="range" id="oklab-comp" min="0" max="100" step="1" value="60">
+                    <span class="slider-val" id="oklab-comp-val">60%</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S6 · HIGHLIGHT DESATURATION
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s6">
+        <p class="section-num">05 · Highlight Desaturation</p>
+        <h2>Fading to <span class="accent-coral">white</span> in the highlights</h2>
+        <p class="lead">
+            Very bright areas in real scenes tend to blow out to white — film handles this gracefully by desaturating
+            highlights before they clip. This step simulates that: as Oklab lightness rises toward pure white, chroma is
+            gently rolled off to zero.
+        </p>
+
+        <div class="two-col">
+            <div>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    The rolloff starts at L = 1.5 and reaches zero at L = 2.0. Those are Oklab lightness values, where
+                    1.0 is "white" on a display — so this is working in the super-white, specular highlight range.
+                </p>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    Critically, a <strong style="color:var(--coral);">Hermite smoothstep</strong> is used instead of a
+                    linear ramp. This gives a photographic S-curve rolloff — the transition starts gentle, accelerates,
+                    then eases back to zero. Linear rolloffs tend to look mechanical.
+                </p>
+                <div class="highlight-box coral">
+                    This is still done in Oklab, so the desaturation is perceptually uniform. A saturated red highlight
+                    will rotate toward a neutral white through perceptually similar intermediate colors — not toward a
+                    washed-out pink.
+                </div>
+
+                <div style="margin-top:24px;">
+                    <div class="slider-row">
+                        <label>Rolloff start L</label>
+                        <input type="range" id="desat-start" min="1.0" max="1.8" step="0.05" value="1.5">
+                        <span class="slider-val" id="desat-start-val">1.50</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Rolloff end L</label>
+                        <input type="range" id="desat-end" min="1.5" max="2.5" step="0.05" value="2.0">
+                        <span class="slider-val" id="desat-end-val">2.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <p
+                    style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:12px;">
+                    Chroma rolloff curve (smoothstep vs linear)</p>
+                <div class="chart-wrap" style="height:280px;">
+                    <canvas id="desat-chart" role="img"
+                        aria-label="Chart showing smoothstep vs linear chroma rolloff as Oklab lightness increases">Smoothstep
+                        is smoother than linear rolloff.</canvas>
+                </div>
+                <p style="font-size:12px; color:var(--text3); margin-top:8px; font-family:'DM Mono',monospace;">Amber =
+                    smoothstep (used) · Dashed = linear (not used)</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S7 · UCHIMURA TONEMAPPING
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s7">
+        <p class="section-num">06 · Uchimura Tonemapping</p>
+        <h2>The <span class="accent-green">Uchimura</span> curve</h2>
+        <p class="lead">
+            Now we need to compress the full HDR range into [0,1] for display. The Uchimura operator is a piecewise
+            curve — toe, linear section, shoulder — originally designed for game engines but well-suited here because
+            its parameters map directly to photographic concepts.
+        </p>
+
+        <div class="two-col">
+            <div>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    Crucially, tonemapping is applied to the <strong style="color:var(--green);">luminance norm</strong>
+                    — the maximum channel — not to each channel independently. After computing the scale factor, we
+                    multiply all three channels by the same number. This preserves hue perfectly, which independent
+                    per-channel tonemapping does not.
+                </p>
+
+                <div class="three-col" style="margin-bottom:24px; gap:12px;">
+                    <div class="card" style="padding:16px;">
+                        <div class="card-label" style="color:var(--text3);">Toe</div>
+                        <div style="font-size:20px; font-family:'Playfair Display',serif; color:var(--green);">c = 1.2
+                        </div>
+                        <p style="font-size:12px; color:var(--text2); margin-top:4px;">Black tightness — how much shadow
+                            detail is crushed</p>
+                    </div>
+                    <div class="card" style="padding:16px;">
+                        <div class="card-label" style="color:var(--text3);">Linear</div>
+                        <div style="font-size:20px; font-family:'Playfair Display',serif; color:var(--green);">a = 1.1
+                        </div>
+                        <p style="font-size:12px; color:var(--text2); margin-top:4px;">Contrast in the midtone region
+                        </p>
+                    </div>
+                    <div class="card" style="padding:16px;">
+                        <div class="card-label" style="color:var(--text3);">Shoulder</div>
+                        <div style="font-size:20px; font-family:'Playfair Display',serif; color:var(--green);">p = 1.0
+                        </div>
+                        <p style="font-size:12px; color:var(--text2); margin-top:4px;">Max display brightness — where
+                            highlights roll off</p>
+                    </div>
+                </div>
+
+                <div class="highlight-box" style="border-color:var(--green); background:var(--green-dim);">
+                    The 0.6× pre-exposure scale is borrowed directly from the Academy RRT (Reference Rendering
+                    Transform). It brings scene-linear values into a range where the Uchimura curve works as intended.
+                </div>
+            </div>
+
+            <div>
+                <p
+                    style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:12px;">
+                    Interactive Uchimura curve</p>
+                <div class="chart-wrap" style="height:280px;">
+                    <canvas id="ucurve-chart" role="img"
+                        aria-label="Interactive Uchimura tonemapping curve showing input vs output luminance">Uchimura
+                        curve: toe, linear, and shoulder sections.</canvas>
+                </div>
+                <div style="margin-top:16px;">
+                    <div class="slider-row">
+                        <label>Contrast (a)</label>
+                        <input type="range" id="uc-a" min="0.5" max="2.0" step="0.05" value="1.1">
+                        <span class="slider-val" id="uc-a-val">1.10</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Linear start (m)</label>
+                        <input type="range" id="uc-m" min="0.05" max="0.5" step="0.01" value="0.22">
+                        <span class="slider-val" id="uc-m-val">0.22</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Toe (c)</label>
+                        <input type="range" id="uc-c" min="0.5" max="2.5" step="0.05" value="1.2">
+                        <span class="slider-val" id="uc-c-val">1.20</span>
+                    </div>
+                    <div class="slider-row">
+                        <label>Linear length (l)</label>
+                        <input type="range" id="uc-l" min="0.1" max="0.8" step="0.01" value="0.4">
+                        <span class="slider-val" id="uc-l-val">0.40</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════════
+     S8 · OUTPUT
+══════════════════════════════════════════════════════════ -->
+    <section class="section" id="s8">
+        <p class="section-num">07 · Output</p>
+        <h2>The final <span class="accent-amber">γ encode</span> and what we get</h2>
+        <p class="lead">
+            After tonemapping, values are in linear light [0,1]. One last step: apply a 2.2 power encode. This gamma
+            bake converts the linear signal to a display-referred encoding, which is what monitors and image files
+            expect.
+        </p>
+
+        <div class="two-col">
+            <div>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    Note: this is a pure power curve (x^2.2), not the full sRGB transfer function with its linear
+                    segment at the toe. For a 3D LUT, the difference is negligible — the linear segment only matters at
+                    very low values, and the LUT's interpolation handles that region fine.
+                </p>
+                <p style="font-size:15px; color:var(--text2); margin-bottom:20px;">
+                    The output is saved as a float32 NumPy array shaped [32, 32, 32, 3]. This is deliberately kept as
+                    raw data rather than a .cube or .3dl file — it's designed for Numba-accelerated sampling at render
+                    time, where direct array indexing is faster than parsing an ASCII LUT format.
+                </p>
+
+                <div class="card" style="margin-top:4px;">
+                    <div class="card-label" style="color:var(--text3);">Output spec</div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:12px;">
+                        <div>
+                            <div
+                                style="font-size:12px; color:var(--text3); font-family:'DM Mono',monospace; margin-bottom:4px;">
+                                Shape</div>
+                            <div style="font-family:'DM Mono',monospace; font-size:14px; color:var(--amber);">32 × 32 ×
+                                32 × 3</div>
+                        </div>
+                        <div>
+                            <div
+                                style="font-size:12px; color:var(--text3); font-family:'DM Mono',monospace; margin-bottom:4px;">
+                                Dtype</div>
+                            <div style="font-family:'DM Mono',monospace; font-size:14px; color:var(--amber);">float32
+                            </div>
+                        </div>
+                        <div>
+                            <div
+                                style="font-size:12px; color:var(--text3); font-family:'DM Mono',monospace; margin-bottom:4px;">
+                                File size</div>
+                            <div style="font-family:'DM Mono',monospace; font-size:14px; color:var(--text2);">~384 KB
+                            </div>
+                        </div>
+                        <div>
+                            <div
+                                style="font-size:12px; color:var(--text3); font-family:'DM Mono',monospace; margin-bottom:4px;">
+                                Format</div>
+                            <div style="font-family:'DM Mono',monospace; font-size:14px; color:var(--text2);">.npy
+                                (NumPy)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <p
+                    style="font-family:'DM Mono',monospace; font-size:10px; letter-spacing:0.12em; color:var(--text3); text-transform:uppercase; margin-bottom:12px;">
+                    Full pipeline — signal path comparison</p>
+                <div class="chart-wrap" style="height:300px;">
+                    <canvas id="pipeline-chart" role="img"
+                        aria-label="Line chart comparing input linear signal, tonemapped, and final gamma-encoded output">Pipeline:
+                        raw HDR vs tonemapped vs final encoded output.</canvas>
+                </div>
+                <p style="font-size:12px; color:var(--text3); margin-top:8px; font-family:'DM Mono',monospace;">How a
+                    0→10 EV ramp transforms at each stage</p>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="three-col">
+            <div class="card">
+                <div class="card-label" style="color:var(--amber);">What you get</div>
+                <h3 style="font-size:17px; margin-bottom:8px;">Film-like rendering</h3>
+                <p>Shadows lift softly, highlights roll off gracefully, and colors have the characteristic warmth of a
+                    good emulsion grade.</p>
+            </div>
+            <div class="card">
+                <div class="card-label" style="color:var(--teal);">Zero runtime cost</div>
+                <h3 style="font-size:17px; margin-bottom:8px;">Baked into a LUT</h3>
+                <p>The full pipeline — matrix math, binary search, Hermite curves — runs once at build time. At render
+                    time it's a trilinear interpolation in a 32³ array.</p>
+            </div>
+            <div class="card">
+                <div class="card-label" style="color:var(--blue);">Extensible</div>
+                <h3 style="font-size:17px; margin-bottom:8px;">Easy to retune</h3>
+                <p>Crosstalk amounts, rolloff range, Uchimura parameters — all constants at the top of the file.
+                    Regenerate in seconds.</p>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <span>ACEScg → sRGB · Custom Tonemapper Pipeline</span>
+        <span>32³ LUT · float32</span>
+    </footer>
+
+    <script>
+        // ── NAV OBSERVER ────────────────────────────────────────────
+        const sections = document.querySelectorAll('section[id]');
+        const navLinks = document.querySelectorAll('#toc-nav a');
+        const obs = new IntersectionObserver(entries => {
+            entries.forEach(e => {
+                if (e.isIntersecting) {
+                    navLinks.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + e.target.id));
+                }
+            });
+        }, { threshold: 0.4 });
+        sections.forEach(s => obs.observe(s));
+
+        // ── EV CANVAS ───────────────────────────────────────────────
+        function drawEV() {
+            const canvas = document.getElementById('ev-canvas');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            const evMin = parseFloat(document.getElementById('ev-min').value);
+            const evMax = parseFloat(document.getElementById('ev-max').value);
+            ctx.clearRect(0, 0, W, H);
+
+            const pad = 50;
+            const cw = W - pad * 2, ch = H - pad * 2;
+
+            // Draw background bands
+            const stops = evMax - evMin;
+            for (let ev = Math.ceil(evMin); ev <= Math.floor(evMax); ev++) {
+                const x = pad + ((ev - evMin) / stops) * cw;
+                const lin = Math.pow(2, ev);
+                const bright = Math.min(1, lin / Math.pow(2, evMax)) * 0.85;
+                ctx.fillStyle = `rgb(${Math.round(bright * 235)},${Math.round(bright * 220)},${Math.round(bright * 190)})`;
+                const bw = cw / stops;
+                ctx.fillRect(x, pad, bw, ch);
+            }
+
+            // Gradient overlay
+            const grad = ctx.createLinearGradient(pad, 0, pad + cw, 0);
+            grad.addColorStop(0, 'rgba(13,14,15,0.7)');
+            grad.addColorStop(0.3, 'rgba(13,14,15,0.2)');
+            grad.addColorStop(0.7, 'rgba(13,14,15,0.1)');
+            grad.addColorStop(1, 'rgba(255,245,220,0.1)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(pad, pad, cw, ch);
+
+            // Log curve
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(212,150,58,0.9)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i <= 200; i++) {
+                const t = i / 200;
+                const ev = evMin + t * stops;
+                const linVal = Math.pow(2, ev);
+                const displayY = pad + ch - (Math.log2(linVal + 1) / Math.log2(Math.pow(2, evMax) + 1)) * ch;
+                const x = pad + t * cw;
+                if (i === 0) ctx.moveTo(x, displayY); else ctx.lineTo(x, displayY);
+            }
+            ctx.stroke();
+
+            // X axis labels
+            ctx.fillStyle = 'rgba(154,150,144,0.8)';
+            ctx.font = '11px "DM Mono", monospace';
+            ctx.textAlign = 'center';
+            for (let ev = Math.ceil(evMin); ev <= Math.floor(evMax); ev += 2) {
+                const x = pad + ((ev - evMin) / stops) * cw;
+                ctx.fillText((ev >= 0 ? '+' : '') + ev + ' EV', x, H - 16);
+            }
+
+            // Y axis label
+            ctx.save();
+            ctx.translate(16, H / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillText('log display', 0, 0);
+            ctx.restore();
+
+            // Reference markers
+            const refs = [{ ev: 0, label: 'Middle grey' }, { ev: evMax, label: 'Sun' }];
+            refs.forEach(r => {
+                if (r.ev >= evMin && r.ev <= evMax) {
+                    const x = pad + ((r.ev - evMin) / stops) * cw;
+                    ctx.strokeStyle = 'rgba(212,150,58,0.35)';
+                    ctx.lineWidth = 0.5;
+                    ctx.setLineDash([4, 4]);
+                    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + ch); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = 'rgba(212,150,58,0.7)';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(r.label, x, pad - 6);
+                }
+            });
+        }
+
+        document.getElementById('ev-max').addEventListener('input', e => {
+            document.getElementById('ev-max-val').textContent = '+' + e.target.value + ' EV';
+            drawEV();
+        });
+        document.getElementById('ev-min').addEventListener('input', e => {
+            document.getElementById('ev-min-val').textContent = e.target.value + ' EV';
+            drawEV();
+        });
+        drawEV();
+
+        // ── GAMUT DIAGRAM ────────────────────────────────────────────
+        (function () {
+            const canvas = document.getElementById('gamut-canvas');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+
+            // Simplified xy chromaticity: spectral locus approximation
+            function xyToCanvas(x, y) {
+                return [W * 0.1 + x * W * 0.75, H - (H * 0.1 + y * H * 0.75)];
+            }
+
+            // ACEScg gamut (amber)
+            const aces = [[0.713, 0.293], [0.165, 0.830], [0.128, 0.044]];
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(212,150,58,0.7)';
+            ctx.lineWidth = 1.5;
+            aces.forEach(([x, y], i) => {
+                const [cx, cy] = xyToCanvas(x, y);
+                i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+            });
+            ctx.closePath();
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(212,150,58,0.06)';
+            ctx.fill();
+
+            // sRGB gamut (blue)
+            const srgb = [[0.640, 0.330], [0.300, 0.600], [0.150, 0.060]];
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(74,127,193,0.7)';
+            ctx.lineWidth = 1.5;
+            srgb.forEach(([x, y], i) => {
+                const [cx, cy] = xyToCanvas(x, y);
+                i === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+            });
+            ctx.closePath();
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(74,127,193,0.07)';
+            ctx.fill();
+
+            // D65 white point
+            const [wx, wy] = xyToCanvas(0.3127, 0.3290);
+            ctx.beginPath();
+            ctx.arc(wx, wy, 3, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(232,230,224,0.6)';
+            ctx.fill();
+            ctx.fillStyle = 'rgba(154,150,144,0.7)';
+            ctx.font = '10px "DM Mono", monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText('D65', wx + 6, wy + 4);
+
+            // Primary dot labels
+            const acesPrimaries = [{ xy: [0.713, 0.293], label: 'R' }, { xy: [0.165, 0.830], label: 'G' }, { xy: [0.128, 0.044], label: 'B' }];
+            acesPrimaries.forEach(({ xy: [x, y], label }) => {
+                const [cx, cy] = xyToCanvas(x, y);
+                ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(212,150,58,0.8)'; ctx.fill();
+                ctx.fillStyle = 'rgba(212,150,58,0.6)';
+                ctx.font = '10px "DM Mono", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('ACES ' + label, cx, cy - 8);
+            });
+
+            // Axis labels
+            ctx.fillStyle = 'rgba(92,90,86,0.8)';
+            ctx.font = '10px "DM Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('x', W / 2, H - 4);
+            ctx.save(); ctx.translate(12, H / 2); ctx.rotate(-Math.PI / 2);
+            ctx.fillText('y', 0, 0); ctx.restore();
+        })();
+
+        // ── MATRIX GRID ──────────────────────────────────────────────
+        function drawMatrix() {
+            const r = parseFloat(document.getElementById('bleed-r').value) / 100;
+            const g = parseFloat(document.getElementById('bleed-g').value) / 100;
+            const b = parseFloat(document.getElementById('bleed-b').value) / 100;
+
+            const rBleedG = r * 0.667, rBleedB = r * 0.333;
+            const gBleedB = g * 0.667, gBleedR = g * 0.333;
+            const bBleedR = b * 0.667, bBleedG = b * 0.333;
+
+            const m = [
+                [1 - r, rBleedG, rBleedB],
+                [gBleedR, 1 - g, gBleedB],
+                [bBleedR, bBleedG, 1 - b]
+            ];
+
+            const grid = document.getElementById('matrix-grid');
+            grid.innerHTML = '';
+            const labels = [['R→R', 'R→G', 'R→B'], ['G→R', 'G→G', 'G→B'], ['B→R', 'B→G', 'B→B']];
+            const colors = [['rgba(200,90,62', 'rgba(200,90,62', 'rgba(200,90,62'],
+            ['rgba(90,158,90', 'rgba(90,158,90', 'rgba(90,158,90'],
+            ['rgba(74,127,193', 'rgba(74,127,193', 'rgba(74,127,193']];
+            m.forEach((row, i) => row.forEach((val, j) => {
+                const cell = document.createElement('div');
+                cell.className = 'matrix-cell';
+                const opacity = 0.08 + val * 0.6;
+                const isDiag = i === j;
+                cell.style.background = `${colors[i][j]},${opacity})`;
+                cell.style.border = `0.5px solid ${colors[i][j]},${isDiag ? 0.5 : 0.2})`;
+                cell.style.color = isDiag ? 'var(--text)' : 'var(--text2)';
+                cell.title = labels[i][j];
+                cell.textContent = val.toFixed(2);
+                grid.appendChild(cell);
+            }));
+        }
+
+        ['bleed-r', 'bleed-g', 'bleed-b'].forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener('input', () => {
+                const val = parseInt(el.value);
+                document.getElementById(id + '-val').textContent = val + '%';
+                drawMatrix();
+                drawCrosstalk();
+            });
+        });
+        drawMatrix();
+
+        // ── CROSSTALK CANVAS ─────────────────────────────────────────
+        function drawCrosstalk() {
+            const canvas = document.getElementById('crosstalk-canvas');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+
+            const r = parseFloat(document.getElementById('bleed-r').value) / 100;
+            const g = parseFloat(document.getElementById('bleed-g').value) / 100;
+            const b = parseFloat(document.getElementById('bleed-b').value) / 100;
+
+            const rG = r * 0.667, rB = r * 0.333;
+            const gB = g * 0.667, gR = g * 0.333;
+            const bR = b * 0.667, bG = b * 0.333;
+
+            // Show pure primaries before/after
+            const colors = [
+                { name: 'red', before: [1, 0, 0] },
+                { name: 'green', before: [0, 1, 0] },
+                { name: 'blue', before: [0, 0, 1] },
+                { name: 'Orange', before: [1, 0.5, 0] },
+                { name: 'Cyan', before: [0, 0.8, 0.8] },
+                { name: 'White', before: [0.8, 0.8, 0.8] },
+            ];
+
+            colors.forEach((col, i) => {
+                const [ri, gi, bi] = col.before;
+                const ro = (1 - r) * ri + gR * gi + bR * bi;
+                const go = rG * ri + (1 - g) * gi + bG * bi;
+                const bo = rB * ri + gB * gi + (1 - b) * bi;
+
+                const y = 28 + i * 54;
+                const bx = 60, bw = 140, bh = 36;
+
+                // Before swatch
+                ctx.fillStyle = `rgb(${Math.round(ri * 230)},${Math.round(gi * 230)},${Math.round(bi * 230)})`;
+                ctx.beginPath();
+                ctx.roundRect(bx, y, bw, bh, 4);
+                ctx.fill();
+
+                // Arrow
+                ctx.fillStyle = 'rgba(154,150,144,0.4)';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('→', bx + bw + 36, y + bh / 2 + 5);
+
+                // After swatch
+                const clamp = v => Math.max(0, Math.min(255, Math.round(v * 255)));
+                ctx.fillStyle = `rgb(${clamp(ro)},${clamp(go)},${clamp(bo)})`;
+                ctx.beginPath();
+                ctx.roundRect(bx + bw + 58, y, bw, bh, 4);
+                ctx.fill();
+
+                // Labels
+                ctx.fillStyle = 'rgba(154,150,144,0.7)';
+                ctx.font = '11px "DM Mono", monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(col.name, 4, y + bh / 2 + 4);
+
+                // Delta values
+                const dr = Math.abs(ro - ri), dg = Math.abs(go - gi), db = Math.abs(bo - bi);
+                ctx.fillStyle = 'rgba(92,90,86,0.7)';
+                ctx.font = '9px "DM Mono", monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Δ ${(dr * 100).toFixed(0)}/${(dg * 100).toFixed(0)}/${(db * 100).toFixed(0)}`, bx + bw + 58, y + bh + 14);
+            });
+
+            // Column headers
+            ctx.fillStyle = 'rgba(92,90,86,0.6)';
+            ctx.font = '9px "DM Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('BEFORE', 60 + 70, 18);
+            ctx.fillText('AFTER', 60 + 140 + 58 + 70, 18);
+        }
+        drawCrosstalk();
+
+        // ── OKLAB CANVAS ─────────────────────────────────────────────
+        // helper: convert XYZ (D65) to Oklab
+        function xyzToOklab(X, Y, Z) {
+            // M1 matrix
+            const l = 0.8189330101 * X + 0.3618667424 * Y - 0.1288597137 * Z;
+            const m = 0.0329845436 * X + 0.9293118715 * Y + 0.0361456387 * Z;
+            const s = 0.0482003018 * X + 0.2643662691 * Y + 0.6338517070 * Z;
+            const l_ = Math.cbrt(l);
+            const m_ = Math.cbrt(m);
+            const s_ = Math.cbrt(s);
+            const L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
+            const a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_;
+            const b = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_;
+            return { L, a, b };
+        }
+
+        // helper: xyY to XYZ then to Oklab (use Y=1 for locus geometry)
+        function xyToOklab(x, y, Y = 1.0) {
+            if (y === 0) y = 1e-6;
+            const X = (x * Y) / y;
+            const Z = ((1 - x - y) * Y) / y;
+            return xyzToOklab(X, Y, Z);
+        }
+
+        function drawOklab() {
+            const canvas = document.getElementById('oklab-canvas');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
+            const comp = parseFloat(document.getElementById('oklab-comp').value) / 100;
+            const cx = W / 2, cy = H / 2 - 10, R = Math.min(W, H) * 0.38;
+
+            // Background circle — sRGB gamut footprint
+            ctx.beginPath();
+            ctx.arc(cx, cy, R, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(28,30,32,0.8)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
+
+            // hue rings
+            for (let i = 1; i <= 3; i++) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, R * i / 3, 0, Math.PI * 2);
+                ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+                ctx.lineWidth = 0.5;
+                ctx.stroke();
+            }
+
+            // Out of gamut points (before)
+            const outOfGamut = [];
+            for (let a = 0; a < 360; a += 12) {
+                const rad = (a * Math.PI) / 180;
+                const chromaScale = 0.65 + 0.35 * Math.sin(a * 2.7 * Math.PI / 180);
+                const x = cx + Math.cos(rad) * R * chromaScale;
+                const y = cy + Math.sin(rad) * R * chromaScale;
+                outOfGamut.push({ x, y, rad, chromaScale });
+            }
+
+            // Compressed points
+            outOfGamut.forEach(pt => {
+                const compChroma = Math.min(pt.chromaScale, 1.0 - (pt.chromaScale - 0.6) * comp * 1.2);
+                const cx2 = cx + Math.cos(pt.rad) * R * compChroma * (1 - comp * 0.3);
+                const cy2 = cy + Math.sin(pt.rad) * R * compChroma * (1 - comp * 0.3);
+
+                // Line from original to compressed
+                if (comp > 0.01) {
+                    ctx.beginPath();
+                    ctx.moveTo(pt.x, pt.y);
+                    ctx.lineTo(cx2, cy2);
+                    ctx.strokeStyle = 'rgba(58,157,138,0.2)';
+                    ctx.lineWidth = 0.7;
+                    ctx.stroke();
+                }
+
+                // Original (red = OOG)
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = pt.chromaScale > 0.98 ? 'rgba(200,90,62,0.8)' : 'rgba(154,150,144,0.5)';
+                ctx.fill();
+
+                // Compressed
+                if (comp > 0.01) {
+                    ctx.beginPath();
+                    ctx.arc(cx2, cy2, 3.5, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(58,157,138,0.8)';
+                    ctx.fill();
+                }
+            });
+
+            // Gamut boundary circle label
+            ctx.fillStyle = 'rgba(92,90,86,0.6)';
+            ctx.font = '10px "DM Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('sRGB gamut boundary', cx, cy + R + 18);
+
+            // Draw a clear chroma/a-b axes and outer boundary to indicate limits
+            ctx.beginPath();
+            ctx.moveTo(cx - R, cy);
+            ctx.lineTo(cx + R, cy);
+            ctx.moveTo(cx, cy - R);
+            ctx.lineTo(cx, cy + R);
+            ctx.strokeStyle = 'rgba(11,22,35,0.06)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            // Outer dashed boundary for reference
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            ctx.arc(cx, cy, R, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(92,90,86,0.12)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // a/b axis labels
+            ctx.fillStyle = 'rgba(107,114,128,0.85)';
+            ctx.font = '11px "DM Mono", monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText('a', cx + R + 8, cy + 4);
+            ctx.textAlign = 'center';
+            ctx.fillText('b', cx, cy - R - 8);
+
+            // Legend
+            ctx.fillStyle = 'rgba(200,90,62,0.8)';
+            ctx.beginPath(); ctx.arc(24, H - 28, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(154,150,144,0.6)';
+            ctx.font = '10px "DM Mono", monospace';
+            ctx.textAlign = 'left';
+            ctx.fillText('out of gamut', 34, H - 24);
+
+            ctx.fillStyle = 'rgba(58,157,138,0.8)';
+            ctx.beginPath(); ctx.arc(W / 2, H - 28, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = 'rgba(154,150,144,0.6)';
+            ctx.textAlign = 'left';
+            ctx.fillText('compressed', W / 2 + 10, H - 24);
+        }
+
+        document.getElementById('oklab-comp').addEventListener('input', e => {
+            document.getElementById('oklab-comp-val').textContent = e.target.value + '%';
+            drawOklab();
+        });
+        drawOklab();
+
+        // ── DESATURATION CHART ────────────────────────────────────────
+        let desatChart;
+        const desatLabels = Array.from({ length: 61 }, (_, i) => (0.8 + i / 60 * 1.6).toFixed(2));
+        function buildDesatChart() {
+            const canvas = document.getElementById('desat-chart');
+            const smoothData = [], linearData = [];
+            const start = parseFloat(document.getElementById('desat-start').value);
+            const end = parseFloat(document.getElementById('desat-end').value);
+            for (let i = 0; i <= 60; i++) {
+                const L = 0.8 + i / 60 * 1.6;
+                let t = Math.max(0, Math.min(1, (L - start) / (Math.max(end - start, 0.01))));
+                let smoothFactor = 1 - t * t * (3 - 2 * t);
+                let linFactor = 1 - Math.max(0, Math.min(1, (L - start) / (Math.max(end - start, 0.01))));
+                smoothData.push(parseFloat(smoothFactor.toFixed(3)));
+                linearData.push(parseFloat(linFactor.toFixed(3)));
+            }
+
+            if (desatChart) {
+                desatChart.data.datasets[0].data = smoothData;
+                desatChart.data.datasets[1].data = linearData;
+                desatChart.update({ duration: 300, easing: 'easeOutCubic' });
+                return;
+            }
+
+            desatChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: desatLabels,
+                    datasets: [
+                        {
+                            label: 'Smoothstep (used)',
+                            data: smoothData,
+                            borderColor: '#d4963a',
+                            backgroundColor: 'rgba(212,150,58,0.08)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.3,
+                        },
+                        {
+                            label: 'Linear (not used)',
+                            data: linearData,
+                            borderColor: 'rgba(154,150,144,0.5)',
+                            backgroundColor: 'transparent',
+                            borderWidth: 1.5,
+                            borderDash: [5, 4],
+                            pointRadius: 0,
+                            fill: false,
+                            tension: 0,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: {
+                            ticks: { color: '#5c5a56', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 8, autoSkip: true },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: { display: true, text: 'Oklab Lightness (L)', color: '#5c5a56', font: { family: 'DM Mono', size: 10 } }
+                        },
+                        y: {
+                            min: 0, max: 1.05,
+                            ticks: { color: '#5c5a56', font: { family: 'DM Mono', size: 10 } },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: { display: true, text: 'Chroma scale factor', color: '#5c5a56', font: { family: 'DM Mono', size: 10 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        document.getElementById('desat-start').addEventListener('input', e => {
+            document.getElementById('desat-start-val').textContent = parseFloat(e.target.value).toFixed(2);
+            buildDesatChart();
+        });
+        document.getElementById('desat-end').addEventListener('input', e => {
+            document.getElementById('desat-end-val').textContent = parseFloat(e.target.value).toFixed(2);
+            buildDesatChart();
+        });
+        buildDesatChart();
+
+        // ── UCHIMURA CURVE ────────────────────────────────────────────
+        let ucurveChart;
+        const ucurveLabels = Array.from({ length: 101 }, (_, i) => (i / 100 * 1.2).toFixed(2));
+        function uchimura(x, p, a, m, l_len, c) {
+            const l0 = ((p - m) * l_len) / a;
+            const l0c = m - m / a;
+            const s0 = m + l0;
+            const s1 = m + a * l0;
+            const c2 = (a * p) / (p - s1);
+            const cp = -c2 / p;
+            const w0 = 1 - Math.max(0, Math.min(1, (x - l0c) / (m - l0c)));
+            const w2 = Math.max(0, Math.min(1, (x - s0) / (p - s0)));
+            const w1 = 1 - w0 - w2;
+            const sm = m === 0 ? 1e-6 : m;
+            const t = sm * Math.pow(x / sm, c);
+            const s = p - (p - s1) * Math.exp(cp * (x - s0));
+            const lc = sm + a * (x - sm);
+            return t * w0 + lc * w1 + s * w2;
+        }
+
+        function buildUCurve() {
+            const canvas = document.getElementById('ucurve-chart');
+            const a = parseFloat(document.getElementById('uc-a').value);
+            const m = parseFloat(document.getElementById('uc-m').value);
+            const c = parseFloat(document.getElementById('uc-c').value);
+            const l_len = parseFloat(document.getElementById('uc-l').value);
+
+            const data = [], linData = [];
+            for (let i = 0; i <= 100; i++) {
+                const x = i / 100 * 1.2;
+                const exposed = Math.max(0, x * 0.6);
+                const mapped = uchimura(exposed, 1.0, a, m, l_len, c);
+                data.push(parseFloat(Math.max(0, Math.min(1, mapped)).toFixed(4)));
+                linData.push(parseFloat(Math.min(1, x).toFixed(4)));
+            }
+
+            if (ucurveChart) {
+                // update datasets only — keep labels fixed to avoid redraw-from-zero
+                ucurveChart.data.datasets[0].data = data;
+                ucurveChart.data.datasets[1].data = linData;
+                ucurveChart.update({ duration: 420, easing: 'easeOutCubic' });
+                return;
+            }
+
+            ucurveChart = new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: ucurveLabels,
+                    datasets: [
+                        {
+                            label: 'Uchimura output',
+                            data,
+                            borderColor: '#5a9e5a',
+                            backgroundColor: 'rgba(90,158,90,0.07)',
+                            borderWidth: 2.5,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.2
+                        },
+                        {
+                            label: 'Linear (no TM)',
+                            data: linData,
+                            borderColor: 'rgba(154,150,144,0.35)',
+                            backgroundColor: 'transparent',
+                            borderWidth: 1,
+                            borderDash: [5, 4],
+                            pointRadius: 0,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: {
+                            ticks: { color: '#5c5a56', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 8, autoSkip: true },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: { display: true, text: 'Scene linear input', color: '#5c5a56', font: { family: 'DM Mono', size: 10 } }
+                        },
+                        y: {
+                            min: 0, max: 1.1,
+                            ticks: { color: '#5c5a56', font: { family: 'DM Mono', size: 10 } },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: { display: true, text: 'Display output [0,1]', color: '#5c5a56', font: { family: 'DM Mono', size: 10 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        ['uc-a', 'uc-m', 'uc-c', 'uc-l'].forEach(id => {
+            document.getElementById(id).addEventListener('input', e => {
+                document.getElementById(id + '-val').textContent = parseFloat(e.target.value).toFixed(2);
+                buildUCurve();
+            });
+        });
+        buildUCurve();
+
+        // Expose a small API so external components can plug-in and call redraws
+        const Tonemapper = {
+            drawEV, drawMatrix, drawCrosstalk, drawOklab, buildDesatChart, buildUCurve
+        };
+
+        // ── PIPELINE COMPARISON CHART ─────────────────────────────────
+        (function () {
+            const canvas = document.getElementById('pipeline-chart');
+            const labels = [], rawData = [], tmData = [], gammaData = [];
+
+            for (let i = 0; i <= 80; i++) {
+                const ev = -10 + i / 80 * 20;
+                const lin = Math.pow(2, ev);
+                labels.push(ev.toFixed(1));
+                rawData.push(parseFloat(Math.min(10, lin).toFixed(4)));
+                const exposed = Math.max(0, lin * 0.6);
+                const tm = uchimura(Math.min(exposed, 4), 1, 1.1, 0.22, 0.4, 1.2);
+                const tmClamped = Math.max(0, Math.min(1, tm));
+                tmData.push(parseFloat(tmClamped.toFixed(4)));
+                gammaData.push(parseFloat(Math.pow(tmClamped, 2.2).toFixed(4)));
+            }
+
+            new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Scene linear (scaled)',
+                            data: rawData,
+                            borderColor: 'rgba(200,90,62,0.7)',
+                            backgroundColor: 'transparent',
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            borderDash: [3, 3]
+                        },
+                        {
+                            label: 'After Uchimura',
+                            data: tmData,
+                            borderColor: 'rgba(90,158,90,0.8)',
+                            backgroundColor: 'rgba(90,158,90,0.05)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true
+                        },
+                        {
+                            label: 'Final γ 2.2 output',
+                            data: gammaData,
+                            borderColor: 'rgba(212,150,58,0.9)',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2.5,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: {
+                            ticks: { color: '#5c5a56', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 10 },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: { display: true, text: 'Input EV', color: '#5c5a56', font: { family: 'DM Mono', size: 10 } }
+                        },
+                        y: {
+                            min: 0, max: 1.05,
+                            ticks: { color: '#5c5a56', font: { family: 'DM Mono', size: 10 } },
+                            grid: { color: 'rgba(255,255,255,0.04)' },
+                            title: { display: true, text: 'Output value', color: '#5c5a56', font: { family: 'DM Mono', size: 10 } }
+                        }
+                    }
+                }
+            });
+        })();
+    </script>
+</body>
+
+</html>
