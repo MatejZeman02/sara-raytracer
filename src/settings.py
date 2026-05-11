@@ -44,9 +44,44 @@ class Settings:
 
         Aliases: --scene -> SCENE_NAME, --format -> IMG_FORMAT,
         --exposure-compensation -> EXPOSURE_COMPENSATION.
+
+        Usage: python -m src.main --scene bunny --samples 32 --tonemapper khronos
+               python -m src.main --help
         """
-        _ALIASES = {"SCENE": "SCENE_NAME", "FORMAT": "IMG_FORMAT"}
+        _ALIASES = {
+            "SCENE": "SCENE_NAME",
+            "FORMAT": "IMG_FORMAT",
+            "RESOLUTION": "GPU_DIMENSION",
+        }
+        _BOOL_KEYS = {
+            "USE_SAH", "USE_BINNING", "USE_BVH_CACHE", "DENOISE",
+            "PRINT_STATS", "RENDER_NON_BVH_STATS", "COLLECT_BVH_STATS",
+        }
         args = list(sys.argv[1:])
+        for arg in args:
+            if arg in ("--help", "-h", "help"):
+                print("Sara ray tracer — usage:")
+                print()
+                print("  python -m src.main [options]")
+                print("  python -m src.main --scene <name> [--samples N] [--tonemapper <name>]")
+                print()
+                print("Options:")
+                print("  --scene <name>               Scene directory (default: box-advanced)")
+                print("  --samples <N>                Samples per pixel (default: 16)")
+                print("  --max-bounces <N>            Max ray bounces (default: 16)")
+                print("  --resolution <N>             Output width×height (default: 1024)")
+                print("  --exposure-compensation <N>  Exposure EV stops (default: 3)")
+                print("  --tonemapper <name>          custom|khronos|narkowicz|hill|none|magenta")
+                print("  --format <ext>               Output format: jpg|png|ppm (default: jpg)")
+                print("  --device <gpu|cpu>           Render device (default: gpu)")
+                print("  --denoise <true|false>       Enable OIDN denoiser (default: true)")
+                print("  --help                       Show this message")
+                print()
+                print("Examples:")
+                print("  python -m src.main --scene bunny")
+                print("  python -m src.main --scene bunny --samples 64 --tonemapper khronos")
+                print("  python -m src.main --scene dragon --samples 8 --denoise false")
+                sys.exit(0)
         i = 0
         while i < len(args):
             if args[i].startswith("--") and i + 1 < len(args):
@@ -55,15 +90,7 @@ class Settings:
                 val = args[i + 1]
                 if key in ("SAMPLES", "CPU_DIMENSION", "GPU_DIMENSION", "MAX_BOUNCES"):
                     val = int(val)
-                elif key in (
-                    "USE_SAH",
-                    "USE_BINNING",
-                    "USE_BVH_CACHE",
-                    "DENOISE",
-                    "PRINT_STATS",
-                    "RENDER_NON_BVH_STATS",
-                    "COLLECT_BVH_STATS",
-                ):
+                elif key in _BOOL_KEYS:
                     val = val.lower() not in ("false", "0", "no")
                 elif key == "EXPOSURE_COMPENSATION":
                     val = float(val)
