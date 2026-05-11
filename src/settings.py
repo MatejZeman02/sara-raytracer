@@ -20,9 +20,9 @@ _DEFAULTS = {
     # - "hill": Stephen Hill ACES approximation (CPU path)
     # - "none": bypass tonemap and clip to [0, 1]
     # - "magenta": debug overshoot visualizer
-    "TONEMAPPER": "khronos",
+    "TONEMAPPER": "custom",
     "IMG_FORMAT": "jpg",
-    "USE_BVH_CACHE": True,
+    "USE_BVH_CACHE": False,
     "PRINT_STATS": False,
     "RENDER_NON_BVH_STATS": False,
     "COLLECT_BVH_STATS": False,

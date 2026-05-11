@@ -1,8 +1,37 @@
 # Sara — Numba-CUDA Ray Tracer
 
-GPU-accelerated ray tracing in Python using Numba JIT compilation. Wavefront-scattered ray traversal, binned SAH BVH, and multiple tonemappers.
+GPU-accelerated ray tracing in Python using Numba JIT compilation. Wavefront-scattered ray traversal (on the `gpu` branch), binned SAH BVH, and multiple tonemappers.
 
 **Author:** Matěj Zeman (zemanm40) · **Subject:** NI-PG1 — Počítačová Grafika 1 · **Teacher:** Ing. Radek Richtr, Ph.D. · **Institution:** CTU FIT Prague
+
+[report pdf](report.pdf)
+
+## First Run
+
+To set up the project locally, please follow these steps:
+
+1. **Compile Pybind11 / TinyObjLoader extension:**
+   Run the build script to compile the fast C++ obj loader:
+   ```bash
+   ./scripts/build_tinyobjloader.sh
+   ```
+2. **Generate the Tone-mapper LUT:**
+   Run the color management script to generate the ACEScg/sRGB lookup tables locally:
+   ```bash
+   python color-management/generate-lut.py
+   ```
+
+## Project Structure
+
+| Directory / File    | Description                                                                                  |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `color-management/` | LUTs and scripts for tonemapping and color space conversion (ACEScg).                        |
+| `scenes/`           | Various test scenes in .obj format (`bunny`, `dragon`, `box`, etc.) and configuration JSONs. |
+| `scripts/`          | Shell scripts to run benchmarks, build dependencies, or profile.                             |
+| `src/`              | Main python codebase for the raytracer (bvh, materials, kernel, shading).                    |
+| `tests/`            | Unit and integration tests for metrics and tonemapping.                                      |
+| `utils/`            | External dependencies and loaders (e.g. C++ tinyobjloader).                                  |
+| `requirements.txt`  | Python dependencies.                                                                         |
 
 ## Quick Start
 
@@ -198,6 +227,7 @@ All benchmarks on NVIDIA A100-PCIE-40GB, 1024×1024, 16 samples, 16 bounces. Ren
 | dragon      | sah-binning  |         20.05 |     700.79 |    0.01 |     13.1 |    0.01 |
 
 > BVH build times are CPU-only. Without BVH, per-ray intersection is O(n) — the bunny scene without BVH averages 279,967 triangle tests per hit pixel vs 77 with BVH.
+
 
 ## Python Debugging in VS Code
 
